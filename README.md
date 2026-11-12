@@ -16,6 +16,8 @@ GitHub → **Actions → Build and verify RaSampler → zadnji uspješni run →
 
 ## Rad
 
+Prozor se otvara na **75% (1170 × 555 px)**. Izbornik **Size** u donjoj traci nudi 60%, 75%, 90%, 100%, 125% i 150%. Veličinu možete mijenjati i povlačenjem donjeg desnog kuta, uz očuvanje proporcija. Nove instance i ponovno otvoreni editor počinju na 75%.
+
 - Klik na naziv datoteke ili drag-and-drop učitava WAV, AIFF, FLAC, OGG ili MP3. Strelice pretražuju audio datoteke u istoj mapi. Maksimum je 128 MB i 10 minuta.
 - Jedan sample svira preko klavijature; **Root Note** je izvorna visina. Narančasta točka označava root, narančasta tipka pritisnutu notu. Nazivi nota koriste C3 za MIDI 60.
 - Start, End, Loop, Reverse i Snap nalaze se na donjoj kartici **Sample**, bez duplikata u gornjem redu. Fade In, Fade Out i Gain ostaju dostupni uz waveform.
@@ -28,7 +30,7 @@ GitHub → **Actions → Build and verify RaSampler → zadnji uspješni run →
 - Filter je po glasu, prije efekata. LP/HP 12 i 24 dB, BP, Notch i PEQ. Resonance je Q; EQ Gain upravlja PEQ pojačanjem. Global Volume/Pan djeluju prije FX lanca. Gain uz sample podešava samo sample prije zbrajanja s oscilatorom.
 - Modulation: 2 LFO-a, filterska ovojnica i 8 modulacijskih veza. Amp/Pitch ovojnice uređuju se na njihovim karticama. Sync koristi tempo DAW-a (120 BPM bez host tempa).
 - MIDI: kanal, velocity krivulja, pitch bend, aftertouch, sustain i CC Learn. Za CC Learn odaberite parametar, kliknite Learn CC i pomaknite kontroler. Mapiranje parametra primjenjuje se preko message threada; nije namijenjeno audio-rate modulaciji. Standardni host automation dostupan je za parametre.
-- Save/Load sprema `.rasampler` preset, uključujući izvorni audio. DAW state također ugrađuje audio, postavke i MIDI mapiranja. Vanjska datoteka nije potrebna pri ponovnom otvaranju projekta. Init vraća parametre na početne vrijednosti uz zadržavanje učitanog samplea i MIDI mape. Panic prekida glasove i čisti repove efekata.
+- Save/Load sprema `.rasampler` preset, uključujući izvorni audio. DAW state također ugrađuje audio, postavke i MIDI mapiranja. Vanjska datoteka nije potrebna pri ponovnom otvaranju projekta. **Global Reset** u donjoj traci vraća sve zvučne parametre i redoslijed efekata na tvorničke vrijednosti, briše MIDI mapiranja, zaustavlja glasove i repove efekata te vraća izvorno trajanje uzorka. Učitani sample i odabrana veličina prozora ostaju sačuvani. Panic prekida glasove i čisti repove efekata.
 
 ## Izgradnja
 
@@ -47,6 +49,6 @@ CMake preuzima JUCE s fiksnog commita. Gotovi plugin: `build/RaSampler_artefacts
 
 `RaSamplerCheck --self-test` provjerava audio izlaz, točan MIDI offset, Panic, reverse petlju, oscilator, filtere/efekte, redoslijed efekata, state restore, WSOLA trajanje, ugrađivanje audio datoteke i Note Off. `--screenshots <mapa>` renderira stvarni native editor za svih šest kartica.
 
-Ovo je početna verzija 0.2.1. Parametri Reverba Size i Decay zajedno se preslikavaju na JUCE reverb; Decay nije kalibrirano RT60 mjerenje. Saturation i square/saw oscilatori nemaju oversampling/antialiasing. WSOLA može dati artefakte na velikim omjerima ili složenim uzorcima. Nema crossfadea petlje; za diskontinuitet na spoju trebaju odgovarajuće granice. Potrebna je dodatna provjera u stvarnim Windows DAW-ovima prije produkcijske uporabe.
+Ovo je početna verzija 0.3.0. Parametri Reverba Size i Decay zajedno se preslikavaju na JUCE reverb; Decay nije kalibrirano RT60 mjerenje. Saturation i square/saw oscilatori nemaju oversampling/antialiasing. WSOLA može dati artefakte na velikim omjerima ili složenim uzorcima. Nema crossfadea petlje; za diskontinuitet na spoju trebaju odgovarajuće granice. Potrebna je dodatna provjera u stvarnim Windows DAW-ovima prije produkcijske uporabe.
 
 Vidi `THIRD_PARTY.md` za uvjete JUCE licence prije distribucije.

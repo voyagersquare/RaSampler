@@ -185,6 +185,7 @@ static void test()
     check(std::abs(measured - 440) < 8, "time-stretch retains sine-wave pitch");
     RaSamplerProcessor uiProcessor;
     RaSamplerEditor editor(uiProcessor);
+    check(editor.getWidth() == 1170 && editor.getHeight() == 555, "plugin opens at compact 75 percent size");
     auto findControl = [&](const juce::String &id, bool lower) -> RaControl *
     {
         auto *canvas = editor.getChildComponent(0);
@@ -368,9 +369,77 @@ static void test()
     waveform->mouseDown(mouse(shiftStart, shiftStart, false, juce::ModifierKeys::shiftModifier));
     waveform->mouseUp(mouse(shiftStart, shiftStart, false, juce::ModifierKeys::shiftModifier));
     check(std::abs(uiProcessor.value("loopStart") - .1f) < .001, "Shift-drag loop editing remains available");
-    editor.setSize(1170, 555);
+    juce::ComboBox *sizes = nullptr;
+    juce::TextButton *resetButton = nullptr;
+    for (int i = 0; i < canvas->getNumChildComponents(); ++i)
+    {
+        auto *child = canvas->getChildComponent(i);
+        if (auto *box = dynamic_cast<juce::ComboBox *>(child))
+            if (box->getName() == "Interface Size")
+                sizes = box;
+        if (auto *button = dynamic_cast<juce::TextButton *>(child))
+            if (button->getButtonText() == "Global Reset")
+                resetButton = button;
+    }
+    check(sizes && resetButton, "footer exposes interface size and Global Reset");
+    sizes->setSelectedId(100, juce::sendNotificationSync);
+    check(editor.getWidth() == 1560 && editor.getHeight() == 740, "size menu enlarges plugin to 100 percent");
+    sizes->setSelectedId(60, juce::sendNotificationSync);
+    check(editor.getWidth() == 936 && editor.getHeight() == 444,
+          "size menu supports a smaller 60 percent view");
+    check(editor.getConstrainer() &&
+              std::abs(editor.getConstrainer()->getFixedAspectRatio() - 1560. / 740.) < .001,
+          "manual resizing preserves interface proportions");
+    sizes->setSelectedId(100, juce::sendNotificationSync);
+    auto retainedSample = p.originalSample();
+    uiProcessor.setSample(retainedSample);
+    uiProcessor.resetParameters();
+    int cutoffTarget = 0;
+    for (size_t i = 0; i < ra::specs().size(); ++i)
+        if (ra::specs()[i].id == "cutoff")
+            cutoffTarget = int(i);
+    uiProcessor.learnTarget = cutoffTarget;
+    juce::MidiBuffer resetMidi;
+    juce::AudioBuffer<float> resetAudio(2, 512);
+    resetMidi.addEvent(juce::MidiMessage::controllerEvent(1, 74, 100), 0);
+    uiProcessor.processBlock(resetAudio, resetMidi);
+    juce::MemoryBlock beforeReset;
+    uiProcessor.getStateInformation(beforeReset);
+    check(juce::ValueTree::readFromData(beforeReset.getData(), beforeReset.getSize())
+              .getChildWithName("MidiMap")
+              .hasProperty("cc74"),
+          "Global Reset fixture includes a learned MIDI mapping");
+    for (auto *parameter : uiProcessor.getParameters())
+        parameter->setValueNotifyingHost(parameter->getDefaultValue() < .5f ? .8f : .2f);
+    uiProcessor.waveformEnvelope = false;
+    uiProcessor.keyboard.noteOn(1, 60, 1.f);
+    resetButton->onClick();
+    bool factory = true;
+    for (auto *parameter : uiProcessor.getParameters())
+        if (std::abs(parameter->getValue() - parameter->getDefaultValue()) > 1e-5f)
+            factory = false;
+    check(factory, "Global Reset restores every registered sound parameter and effect slot");
+    check(uiProcessor.originalSample() == retainedSample &&
+              uiProcessor.sample()->length() == retainedSample->length(),
+          "Global Reset retains loaded audio and restores its original duration");
+    check(editor.getWidth() == 1560 && editor.getHeight() == 740,
+          "Global Reset retains chosen interface size");
+    juce::MemoryBlock afterReset;
+    uiProcessor.getStateInformation(afterReset);
+    check(juce::ValueTree::readFromData(afterReset.getData(), afterReset.getSize())
+                      .getChildWithName("MidiMap")
+                      .getNumProperties() == 0 &&
+              uiProcessor.learnTarget.load() == -1,
+          "Global Reset clears MIDI mappings and cancels Learn");
+    resetMidi.clear();
+    uiProcessor.processBlock(resetAudio, resetMidi);
+    check(energy(resetAudio) == 0 && uiProcessor.activeVoices.load() == 0 &&
+              !uiProcessor.keyboard.isNoteOn(1, 60),
+          "Global Reset stops voices and clears effect tails and keyboard notes");
+    sizes->setSelectedId(60, juce::sendNotificationSync);
+    editor.setSize(936, 444);
     auto small = editor.createComponentSnapshot(editor.getLocalBounds());
-    check(small.getWidth() == 1170 && small.getHeight() == 555, "native editor renders at minimum size");
+    check(small.getWidth() == 936 && small.getHeight() == 444, "native editor renders at minimum size");
     std::cout << "All RaSampler checks passed." << std::endl;
 }
 class CheckApplication : public juce::JUCEApplication, private juce::Timer
@@ -382,7 +451,7 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
     }
     const juce::String getApplicationVersion() override
     {
-        return "0.2.1";
+        return "0.3.0";
     }
     void initialise(const juce::String &args) override
     {

@@ -185,6 +185,20 @@ void RaSamplerProcessor::resetParameters()
         setParameter(s.id, s.initial);
     requestStretch();
 }
+void RaSamplerProcessor::globalReset()
+{
+    clearMappings();
+    cancelPendingUpdate();
+    for (size_t i = 0; i < ra::specs().size(); ++i)
+        pending[i] = -1;
+    resetParameters();
+    // Switch back to the original immediately; an older stretch job is invalidated by requestStretch().
+    std::atomic_store(&playback, originalSample());
+    appliedStretch = 1;
+    keyboard.reset();
+    waveformEnvelope = true;
+    setStatus("Global Reset | default settings restored | loaded sample retained");
+}
 void RaSamplerProcessor::clearMappings()
 {
     for (auto &m : mappings)

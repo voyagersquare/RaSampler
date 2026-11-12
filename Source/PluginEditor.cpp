@@ -750,8 +750,8 @@ RaSamplerEditor::RaSamplerEditor(RaSamplerProcessor &p)
     }
     for (auto *c : std::initializer_list<juce::Component *>{
              &wave, &filterGraph, &velocity, &keyboard, &filename, &envelopeToggle, &previous, &next,
-             &octDown, &octUp, &savePreset, &loadPreset, &init, &panic, &status, &learn, &clearLearn,
-             &learnChoice})
+             &octDown, &octUp, &savePreset, &loadPreset, &globalReset, &panic, &status, &learn, &clearLearn,
+             &learnChoice, &sizeChoice})
         canvas.addAndMakeVisible(c);
     wave.setBounds(276, 128, 792, 98);
     filterGraph.setBounds(1108, 132, 180, 122);
@@ -806,15 +806,33 @@ RaSamplerEditor::RaSamplerEditor(RaSamplerProcessor &p)
         octave = juce::jmin(3, octave + 1);
         keyboard.setLowestVisibleKey(24 + octave * 12);
     };
-    savePreset.setBounds(1168, 711, 70, 23);
-    loadPreset.setBounds(1245, 711, 70, 23);
-    init.setBounds(1322, 711, 70, 23);
-    panic.setBounds(1399, 711, 70, 23);
+    sizeChoice.setName("Interface Size");
+    sizeChoice.setBounds(980, 711, 128, 23);
+    sizeChoice.setTooltip(
+        "Interface size. You can also drag the lower-right corner to resize proportionally.");
+    for (int percent : {60, 75, 90, 100, 125, 150})
+        sizeChoice.addItem(juce::String(percent) + "%", percent);
+    sizeChoice.onChange = [this]
+    {
+        int percent = sizeChoice.getSelectedId();
+        if (percent > 0)
+            setSize(juce::roundToInt(1560. * percent / 100.), juce::roundToInt(740. * percent / 100.));
+    };
+    savePreset.setBounds(1120, 711, 64, 23);
+    loadPreset.setBounds(1192, 711, 64, 23);
+    globalReset.setBounds(1264, 711, 126, 23);
+    panic.setBounds(1398, 711, 68, 23);
+    globalReset.setTooltip("Restore all sound parameters, effect order and MIDI mappings to defaults. Keep "
+                           "the loaded sample and window size.");
     savePreset.onClick = [this] { preset(true); };
     loadPreset.onClick = [this] { preset(false); };
-    init.onClick = [this]
+    globalReset.onClick = [this]
     {
-        processor.resetParameters();
+        processor.globalReset();
+        octave = 0;
+        selectedFx = 0;
+        keyboard.setLowestVisibleKey(24);
+        envelopeToggle.setToggleState(true, juce::dontSendNotification);
         buildTab();
     };
     panic.onClick = [this]
@@ -822,7 +840,7 @@ RaSamplerEditor::RaSamplerEditor(RaSamplerProcessor &p)
         processor.panic = true;
         processor.keyboard.reset();
     };
-    status.setBounds(156, 709, 995, 25);
+    status.setBounds(156, 709, 760, 25);
     status.setFont(juce::FontOptions(12));
     status.setColour(juce::Label::textColourId, muted);
     for (int i = 0; i < 5; ++i)
@@ -851,8 +869,10 @@ RaSamplerEditor::RaSamplerEditor(RaSamplerProcessor &p)
         processor.setStatus("MIDI mappings cleared");
     };
     setResizable(true, true);
-    setResizeLimits(1170, 555, 2340, 1110);
-    setSize(1560, 740);
+    setResizeLimits(936, 444, 2340, 1110);
+    if (auto *bounds = getConstrainer())
+        bounds->setFixedAspectRatio(1560. / 740.);
+    setSize(1170, 555);
     selectTab(processor.selectedTab.load());
     startTimerHz(25);
 }
@@ -1004,7 +1024,8 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     write(g, "Velocity", {1144, 293, 120, 22}, 14);
     write(g, "Octave", {27, 286, 70, 20}, 13);
     write(g, "RaSampler", {24, 710, 122, 25}, 16, orange);
-    write(g, "0.2.1", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
+    write(g, "Size", {932, 710, 43, 25}, 12, muted);
+    write(g, "0.3.0", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
     auto s = processor.sample();
     write(g, juce::String(s->rate / 1000., 1) + " kHz | " + juce::String(s->length() / s->rate, 2) + " s",
           {963, 94, 104, 28}, 11, muted, juce::Justification::centredRight);
@@ -1042,6 +1063,8 @@ void RaSamplerEditor::paint(juce::Graphics &g)
 }
 void RaSamplerEditor::resized()
 {
+    sizeChoice.setText(juce::String(juce::roundToInt(100. * getWidth() / 1560.)) + "%",
+                       juce::dontSendNotification);
     canvas.setBounds(0, 0, 1560, 740);
     canvas.setTransform(juce::AffineTransform::scale(float(getWidth()) / 1560.f, float(getHeight()) / 740.f));
 }

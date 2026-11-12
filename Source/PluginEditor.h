@@ -129,10 +129,10 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     RaVelocity velocity;
     RaKeyboard keyboard;
     juce::TextButton tabs[6], filename, envelopeToggle{"ADSR"}, previous{"<"}, next{">"}, octDown{"-"},
-        octUp{"+"}, savePreset{"Save"}, loadPreset{"Load"}, init{"Init"}, panic{"Panic"}, learn{"Learn CC"},
-        clearLearn{"Clear map"};
+        octUp{"+"}, savePreset{"Save"}, loadPreset{"Load"}, globalReset{"Global Reset"}, panic{"Panic"},
+        learn{"Learn CC"}, clearLearn{"Clear map"};
     juce::ToggleButton fxButtons[5];
-    juce::ComboBox learnChoice;
+    juce::ComboBox learnChoice, sizeChoice;
     std::vector<std::unique_ptr<RaControl>> persistent, controls;
     struct Card
     {
