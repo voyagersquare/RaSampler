@@ -1,0 +1,32 @@
+name: Build and verify RaSampler
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -A x64
+      - name: Compile Windows VST3 and standalone
+        run: cmake --build build --config Release --parallel 2
+      - name: DSP and state regression checks
+        run: build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --self-test
+      - name: Capture all six native editor pages
+        run: build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --screenshots build/screenshots
+      - name: Assemble download
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/RaSampler_artefacts/Release/VST3/RaSampler.vst3 dist -Recurse
+          Copy-Item build/RaSampler_artefacts/Release/Standalone/RaSampler.exe dist
+          Copy-Item build/screenshots dist -Recurse
+          Copy-Item README.md,THIRD_PARTY.md,Install-Windows.ps1 dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RaSampler-Windows-x64
+          path: dist/

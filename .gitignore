@@ -1,0 +1,5 @@
+/build*/
+/.vs/
+/JUCE/
+*.user
+.DS_Store
