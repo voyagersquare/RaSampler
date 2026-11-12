@@ -16,6 +16,15 @@ jobs:
         run: cmake --build build --config Release --parallel 2
       - name: DSP and state regression checks
         run: build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --self-test
+      - name: Validate Windows VST3 with pluginval
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip -OutFile pluginval.zip
+          Expand-Archive pluginval.zip pluginval
+          $validator = (Get-ChildItem pluginval -Recurse -Filter pluginval.exe | Select-Object -First 1).FullName
+          $plugin = (Resolve-Path build/RaSampler_artefacts/Release/VST3/RaSampler.vst3).Path
+          & $validator --headless --strictness-level 5 --timeout-ms 120000 --validate $plugin
+          if ($LASTEXITCODE -ne 0) { throw "pluginval failed with code $LASTEXITCODE" }
       - name: Capture all six native editor pages
         run: build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --screenshots build/screenshots
       - name: Assemble download

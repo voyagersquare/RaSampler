@@ -39,6 +39,6 @@ CMake preuzima JUCE s fiksnog commita. Gotovi plugin: `build/RaSampler_artefacts
 
 `RaSamplerCheck --self-test` provjerava audio izlaz, točan MIDI offset, Panic, reverse petlju, oscilator, filtere/efekte, redoslijed efekata, state restore, WSOLA trajanje, ugrađivanje audio datoteke i Note Off. `--screenshots <mapa>` renderira stvarni native editor za svih šest kartica.
 
-Ovo je početna verzija 0.1. Parametri Reverba Size i Decay zajedno se preslikavaju na JUCE reverb; Decay nije kalibrirano RT60 mjerenje. Saturation i square/saw oscilatori nemaju oversampling/antialiasing. WSOLA može dati artefakte na velikim omjerima ili složenim uzorcima. Nema crossfadea petlje; za diskontinuitet na spoju trebaju odgovarajuće granice. Podrška za polifoni aftertouch trenutačno se svodi na kanalni modulacijski izvor. Potrebna je dodatna provjera u stvarnim Windows DAW-ovima prije produkcijske uporabe.
+Ovo je početna verzija 0.1. Parametri Reverba Size i Decay zajedno se preslikavaju na JUCE reverb; Decay nije kalibrirano RT60 mjerenje. Saturation i square/saw oscilatori nemaju oversampling/antialiasing. WSOLA može dati artefakte na velikim omjerima ili složenim uzorcima. Nema crossfadea petlje; za diskontinuitet na spoju trebaju odgovarajuće granice. Potrebna je dodatna provjera u stvarnim Windows DAW-ovima prije produkcijske uporabe.
 
 Vidi `THIRD_PARTY.md` za uvjete JUCE licence prije distribucije.
