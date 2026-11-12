@@ -183,6 +183,42 @@ static void test()
             ++crossings;
     double measured = crossings * 44100. / (longSine->length() - 8193);
     check(std::abs(measured - 440) < 8, "time-stretch retains sine-wave pitch");
+    RaSamplerProcessor uiProcessor;
+    RaSamplerEditor editor(uiProcessor);
+    auto findControl = [&](const juce::String &id, bool lower) -> RaControl *
+    {
+        auto *canvas = editor.getChildComponent(0);
+        for (int i = 0; i < canvas->getNumChildComponents(); ++i)
+            if (auto *c = dynamic_cast<RaControl *>(canvas->getChildComponent(i)))
+                if (c->id == id && (!lower || c->getY() > 390))
+                    return c;
+        return nullptr;
+    };
+    for (int tab = 0; tab < 6; ++tab)
+    {
+        editor.selectTab(tab);
+        check(uiProcessor.selectedTab.load() == tab, "native editor tab selection");
+    }
+    editor.selectTab(1);
+    auto *endControl = findControl("end", true);
+    juce::String endText;
+    if (endControl)
+        for (int i = 0; i < endControl->slider.getNumChildComponents(); ++i)
+            if (auto *label = dynamic_cast<juce::Label *>(endControl->slider.getChildComponent(i)))
+                endText = label->getText();
+    check(endText == juce::String(uiProcessor.sample()->length() - 1),
+          "sample editor displays positions in samples on first opening");
+    auto *reverseControl = findControl("reverse", true);
+    check(reverseControl != nullptr, "sample editor exposes reverse control");
+    reverseControl->toggle.setToggleState(true, juce::sendNotificationSync);
+    check(uiProcessor.value("reverse") > .5f, "native toggle updates audio parameter");
+    editor.selectTab(0);
+    auto *delayControl = findControl("delayTime", true);
+    delayControl->slider.setValue(450, juce::sendNotificationSync);
+    check(std::abs(uiProcessor.value("delayTime") - 450) < .01, "native knob updates audio parameter");
+    editor.setSize(1170, 555);
+    auto small = editor.createComponentSnapshot(editor.getLocalBounds());
+    check(small.getWidth() == 1170 && small.getHeight() == 555, "native editor renders at minimum size");
     std::cout << "All RaSampler checks passed." << std::endl;
 }
 class CheckApplication : public juce::JUCEApplication, private juce::Timer
@@ -247,6 +283,11 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
             juce::StringArray{"Effects", "Sample", "Pitch-Osc", "Filter-Global", "Modulation", "MIDI"}[page] +
             ".png");
         auto out = file.createOutputStream();
+        if (out)
+        {
+            out->setPosition(0);
+            out->truncate();
+        }
         juce::PNGImageFormat png;
         if (!out || !png.writeImageToStream(image, *out))
         {

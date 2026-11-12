@@ -4,6 +4,10 @@ Windows x64 VST3 sampler instrument, by Voyagersquare. Native C++17 / JUCE 8.0.6
 
 Jedan učitani sample, šest kartica, bez zona. Tamno metalno sučelje s narančastim kontrolama prema dogovorenim referentnim slikama. Svi gumbi i parametri donjih panela povezani su s instrumentom.
 
+![RaSampler Effects](docs/screenshots/0-Effects.png)
+
+[Pregled svih šest kartica](docs/screenshots/)
+
 ## Preuzimanje i instalacija
 
 GitHub → **Actions → Build and verify RaSampler → zadnji uspješni run → RaSampler-Windows-x64**. Raspakirajte cijeli ZIP. Pokrenite `Install-Windows.ps1` u PowerShellu ili kopirajte cijelu mapu `RaSampler.vst3` u `C:\Program Files\Common Files\VST3` (zahtijeva administratorska prava). Ponovno skenirajte VST3 instrumente u DAW-u. `RaSampler.exe` je samostalna aplikacija; postavke zvučne kartice/MIDI-ja nalaze se u njezinu Options izborniku. U paketu su i slike svih šest kartica.
@@ -16,7 +20,7 @@ GitHub → **Actions → Build and verify RaSampler → zadnji uspješni run →
 - Gate slijedi Note Off i ADSR. One-shot svira do završetka uzorka; uz uključen Loop svira do Panic/All Notes Off. Petlja koristi zasebne granice. Fade In/Out odnose se na rubove izrezanog uzorka.
 - Effects otvara svih pet panela istovremeno. Kvačice uključuju efekte. Povucite ručku desno od naziva u Effects Chainu da promijenite redoslijed. Ploče efekata ostaju na stalnim mjestima.
 - Pitch/Osc ima transpose, detune, pitch ADSR, dodatni oscilator i vremensku obradu. Oscilator dijeli amplitudnu ovojnicu i filter sa sampleom.
-- **Time-stretch** radi offline WSOLA obradom u pozadinskoj niti, čuva visinu pri promjeni trajanja od 0.25× do 4×. Nove note koriste obrađeni sample kad obrada završi; već pokrenuti glasovi završavaju sa svojom verzijom. To nije sustav beat/warp markera. Standardno MIDI transponiranje mijenja brzinu i trajanje reprodukcije.
+- **Time-stretch** radi offline WSOLA obradom u pozadinskoj niti, čuva visinu pri promjeni trajanja od 0.25× do 4× (najdulji obrađeni uzorak: 10 minuta). Nove note koriste obrađeni sample kad obrada završi; već pokrenuti glasovi završavaju sa svojom verzijom. To nije sustav beat/warp markera. Standardno MIDI transponiranje mijenja brzinu i trajanje reprodukcije.
 - Filter je po glasu, prije efekata. LP/HP 12 i 24 dB, BP, Notch i PEQ. Resonance je Q; EQ Gain upravlja PEQ pojačanjem. Global Volume/Pan djeluju prije FX lanca. Gain uz sample podešava samo sample prije zbrajanja s oscilatorom.
 - Modulation: 2 LFO-a, filterska ovojnica i 8 modulacijskih veza. Amp/Pitch ovojnice uređuju se na njihovim karticama. Sync koristi tempo DAW-a (120 BPM bez host tempa).
 - MIDI: kanal, velocity krivulja, pitch bend, aftertouch, sustain i CC Learn. Za CC Learn odaberite parametar, kliknite Learn CC i pomaknite kontroler. Mapiranje parametra primjenjuje se preko message threada; nije namijenjeno audio-rate modulaciji. Standardni host automation dostupan je za parametre.

@@ -752,6 +752,7 @@ void RaSamplerEditor::buildTab()
             { return juce::String(juce::int64(v * (processor.sample()->length() - 1))); };
             c->slider.valueFromTextFunction = [this](const juce::String &s)
             { return s.getDoubleValue() / juce::jmax(1, processor.sample()->length() - 1); };
+            c->slider.updateText();
         }
     repaint();
 }
