@@ -349,17 +349,63 @@ void RaWave::paint(juce::Graphics &g)
                       float(n == 0 ? 0 : getHeight()), x, float(n == 0 ? 12 : getHeight() - 12));
         g.fillPath(t);
     }
-    if (processor.value("loop") > .5f)
-    {
-        for (auto id : {"loopStart", "loopEnd"})
-        {
-            float x = processor.value(id) * getWidth();
-            g.setColour(juce::Colour(0xff62c8d3));
-            float dashes[] = {4, 4};
-            g.drawDashedLine({x, 15, x, float(getHeight() - 15)}, dashes, 2, 1);
-        }
-    }
     paintEnvelope(g);
+    paintLoopMarkers(g);
+}
+std::array<juce::Rectangle<float>, 2> RaWave::loopHandleBounds() const
+{
+    float width = float(getWidth()), height = float(getHeight());
+    float start = juce::jlimit(0.f, 1.f, processor.value("loopStart")) * width;
+    float end = juce::jlimit(0.f, 1.f, processor.value("loopEnd")) * width;
+    auto inside = [width](float x, float w)
+    { return juce::jlimit(12.f, juce::jmax(12.f, width - w - 12), x); };
+    std::array<juce::Rectangle<float>, 2> handles = {
+        juce::Rectangle<float>(inside(start + 8, 64), height - 17, 64, 15),
+        juce::Rectangle<float>(inside(end - 80, 72), height - 17, 72, 15)};
+    if (handles[0].expanded(3, 0).intersects(handles[1]))
+        handles[0].translate(0, -18);
+    return handles;
+}
+int RaWave::loopHit(juce::Point<float> point) const
+{
+    if (processor.value("loop") < .5f)
+        return -1;
+    auto handles = loopHandleBounds();
+    for (int n = 0; n < 2; ++n)
+        if (handles[size_t(n)].expanded(3).contains(point))
+            return n;
+    return -1;
+}
+void RaWave::paintLoopMarkers(juce::Graphics &g)
+{
+    if (processor.value("loop") < .5f)
+        return;
+    const juce::Colour cyan(0xff67e8ff);
+    auto handles = loopHandleBounds();
+    float start = juce::jlimit(0.f, float(getWidth() - 1), processor.value("loopStart") * getWidth());
+    float end = juce::jlimit(start, float(getWidth() - 1), processor.value("loopEnd") * getWidth());
+    g.setColour(cyan.withAlpha(.055f));
+    g.fillRect(start, 0.f, end - start, float(getHeight()));
+    for (int n = 0; n < 2; ++n)
+    {
+        float x = n == 0 ? start : end;
+        auto box = handles[size_t(n)];
+        // Separate the loop flags from the outer white trim handles, even for a full-sample loop.
+        float top = 15, bottom = float(getHeight() - 19);
+        g.setColour(black);
+        g.drawLine(x, top, x, bottom, 5);
+        g.setColour(cyan);
+        g.drawLine(x, top, x, bottom, 2.5f);
+        g.drawLine(x, top, x + (n == 0 ? 9 : -9), top, 2.5f);
+        float attach = n == 0 ? box.getX() + 7 : box.getRight() - 7;
+        g.drawLine(x, bottom, attach, box.getY(), 1.5f);
+        g.setColour(black);
+        g.fillRoundedRectangle(box.expanded(1.5f), 3);
+        g.setColour(cyan);
+        g.fillRoundedRectangle(box, 2.5f);
+        write(g, n == 0 ? "LOOP IN" : "LOOP OUT", box.toNearestInt(), 10, black,
+              juce::Justification::centred);
+    }
 }
 RaWave::EnvelopeGeometry RaWave::envelopeGeometry() const
 {
@@ -452,6 +498,14 @@ void RaWave::paintEnvelope(juce::Graphics &g)
 }
 void RaWave::mouseMove(const juce::MouseEvent &e)
 {
+    int loop = loopHit(e.position);
+    if (loop >= 0)
+    {
+        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        setTooltip(loop == 0 ? "LOOP IN: drag to move the start of the loop"
+                             : "LOOP OUT: drag to move the end of the loop");
+        return;
+    }
     int hit = envelopeHit(e.position);
     setMouseCursor(hit >= 0 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
     static const char *ids[] = {"ampAttack", "ampDecay", "ampSustain", "ampRelease"};
@@ -459,12 +513,14 @@ void RaWave::mouseMove(const juce::MouseEvent &e)
     setTooltip(hit >= 0 ? juce::String(names[hit]) + ": " + juce::String(processor.value(ids[hit]), 2) +
                               (hit == 2 ? "" : " ms") +
                               ". Drag to edit. Release begins at MIDI Note Off in Gate mode."
-                        : "Drag sample boundaries. Shift-drag loop boundaries. ADSR preview fits all stages; "
+                        : "Drag sample boundaries or the cyan LOOP IN / LOOP OUT flags. Shift-drag anywhere "
+                          "to edit the loop. ADSR preview fits all stages; "
                           "sustain duration follows MIDI Note Off.");
 }
 void RaWave::mouseDown(const juce::MouseEvent &e)
 {
-    if (!e.mods.isShiftDown() && (envelopeDrag = envelopeHit(e.position)) >= 0)
+    int loopHandle = loopHit(e.position);
+    if (!e.mods.isShiftDown() && loopHandle < 0 && (envelopeDrag = envelopeHit(e.position)) >= 0)
     {
         auto shape = envelopeGeometry();
         envelopeMouseDown = e.position;
@@ -493,16 +549,20 @@ void RaWave::mouseDown(const juce::MouseEvent &e)
     }
     envelopeDrag = -1;
     float x = e.position.x / getWidth();
-    if (e.mods.isShiftDown())
+    if (loopHandle >= 0)
+        dragging = loopHandle == 0 ? "loopStart" : "loopEnd";
+    else if (e.mods.isShiftDown())
         dragging = std::abs(x - processor.value("loopStart")) < std::abs(x - processor.value("loopEnd"))
                        ? "loopStart"
                        : "loopEnd";
     else
         dragging =
             std::abs(x - processor.value("start")) < std::abs(x - processor.value("end")) ? "start" : "end";
+    loopDragOffset = loopHandle >= 0 ? processor.value(dragging) - x : 0.f;
     if (auto *p = processor.state.getParameter(dragging))
         p->beginChangeGesture();
-    mouseDrag(e);
+    if (loopHandle < 0)
+        mouseDrag(e);
 }
 void RaWave::mouseDrag(const juce::MouseEvent &e)
 {
@@ -530,7 +590,7 @@ void RaWave::mouseDrag(const juce::MouseEvent &e)
     }
     if (dragging.isEmpty())
         return;
-    float value = juce::jlimit(0.f, 1.f, e.position.x / getWidth());
+    float value = juce::jlimit(0.f, 1.f, e.position.x / getWidth() + loopDragOffset);
     if (processor.value("snap") > .5f)
         value = ra::snapToTransient(*processor.sample(), value);
     float gap = 1.f / processor.sample()->length();
@@ -712,21 +772,11 @@ RaSamplerEditor::RaSamplerEditor(RaSamplerProcessor &p)
     previous.onClick = [this] { adjacent(-1); };
     next.onClick = [this] { adjacent(1); };
     filename.setTooltip("Open WAV, AIFF, FLAC, OGG or MP3");
-    int x = 276;
-    for (auto id : {"start", "end", "loop", "fadeIn", "fadeOut", "sampleGain", "reverse", "snap"})
+    int x = 448;
+    for (auto id : {"fadeIn", "fadeOut", "sampleGain"})
     {
-        int w = (juce::String(id) == "start" || juce::String(id) == "end")
-                    ? 104
-                    : (juce::String(id) == "loop" || juce::String(id) == "snap" ? 72 : 108);
-        auto &c = control(id, {x, 231, w, 35}, true, true);
-        if (juce::String(id) == "start" || juce::String(id) == "end")
-        {
-            c.slider.textFromValueFunction = [this](double v)
-            { return juce::String(juce::int64(v * (processor.sample()->length() - 1))); };
-            c.slider.valueFromTextFunction = [this](const juce::String &s)
-            { return s.getDoubleValue() / juce::jmax(1, processor.sample()->length() - 1); };
-        }
-        x += w;
+        control(id, {x, 231, 144, 35}, true, true);
+        x += 152;
     }
     control("filterType", {1298, 91, 154, 48}, true, true);
     control("filterOn", {1108, 92, 174, 28}, true, true);
@@ -954,7 +1004,7 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     write(g, "Velocity", {1144, 293, 120, 22}, 14);
     write(g, "Octave", {27, 286, 70, 20}, 13);
     write(g, "RaSampler", {24, 710, 122, 25}, 16, orange);
-    write(g, "0.2", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
+    write(g, "0.2.1", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
     auto s = processor.sample();
     write(g, juce::String(s->rate / 1000., 1) + " kHz | " + juce::String(s->length() / s->rate, 2) + " s",
           {963, 94, 104, 28}, 11, muted, juce::Justification::centredRight);

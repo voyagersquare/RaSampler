@@ -38,6 +38,7 @@ class RaWave : public juce::Component, public juce::SettableTooltipClient
     void mouseUp(const juce::MouseEvent &) override;
     void mouseMove(const juce::MouseEvent &) override;
     std::array<juce::Point<float>, 4> envelopeHandles() const;
+    std::array<juce::Rectangle<float>, 2> loopHandleBounds() const;
 
   private:
     struct EnvelopeGeometry
@@ -48,6 +49,8 @@ class RaWave : public juce::Component, public juce::SettableTooltipClient
     };
     EnvelopeGeometry envelopeGeometry() const;
     void paintEnvelope(juce::Graphics &);
+    void paintLoopMarkers(juce::Graphics &);
+    int loopHit(juce::Point<float>) const;
     int envelopeHit(juce::Point<float>) const;
     std::vector<juce::String> envelopeParameters;
     juce::Point<float> envelopeMouseDown;
@@ -56,6 +59,7 @@ class RaWave : public juce::Component, public juce::SettableTooltipClient
     int envelopeDrag = -1;
     RaSamplerProcessor &processor;
     juce::String dragging;
+    float loopDragOffset = 0;
     int cachedLength = 0;
     std::shared_ptr<const ra::SampleData> cached;
     juce::Path waveform;

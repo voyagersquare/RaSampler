@@ -315,6 +315,59 @@ static void test()
     uiProcessor.processBlock(slowAudio, slowMidi);
     check(energy(slowAudio) > 0 && energy(slowAudio) < energy(fastAudio) * .2,
           "amplitude Attack setting audibly changes rendered samples");
+    editor.selectTab(1);
+    for (auto id : {"start", "end", "loop", "reverse", "snap"})
+    {
+        int upper = 0;
+        for (int i = 0; i < canvas->getNumChildComponents(); ++i)
+            if (auto *c = dynamic_cast<RaControl *>(canvas->getChildComponent(i)))
+                if (c->id == id && c->getY() < 390)
+                    ++upper;
+        check(upper == 0 && findControl(id, true) != nullptr,
+              "sample-only controls appear once on the Sample page");
+    }
+    uiProcessor.setParameter("loop", 1);
+    uiProcessor.setParameter("loopStart", .2f);
+    uiProcessor.setParameter("loopEnd", .8f);
+    uiProcessor.setParameter("snap", 0);
+    auto loopDrag = [&](int marker, juce::Point<float> delta)
+    {
+        auto start = waveform->loopHandleBounds()[size_t(marker)].getCentre();
+        waveform->mouseDown(mouse(start, start));
+        waveform->mouseDrag(mouse(start + delta, start, true));
+        waveform->mouseUp(mouse(start + delta, start, true));
+    };
+    auto loopPoint = waveform->loopHandleBounds()[0].getCentre();
+    waveform->mouseDown(mouse(loopPoint, loopPoint));
+    waveform->mouseUp(mouse(loopPoint, loopPoint));
+    check(std::abs(uiProcessor.value("loopStart") - .2f) < .00001,
+          "clicking offset LOOP flag does not move the loop boundary");
+    auto ampBefore = uiProcessor.value("ampAttack");
+    loopDrag(0, {40, 0});
+    check(std::abs(uiProcessor.value("loopStart") - (.2f + 40.f / waveform->getWidth())) < .001,
+          "LOOP IN flag drags directly without Shift");
+    loopDrag(1, {-40, 0});
+    check(std::abs(uiProcessor.value("loopEnd") - (.8f - 40.f / waveform->getWidth())) < .001,
+          "LOOP OUT flag drags directly without Shift");
+    check(uiProcessor.value("start") == 0 && uiProcessor.value("end") == 1 &&
+              uiProcessor.value("ampAttack") == ampBefore,
+          "loop flags leave trim markers and ADSR unchanged");
+    uiProcessor.setParameter("loopStart", .49f);
+    uiProcessor.setParameter("loopEnd", .51f);
+    auto tight = waveform->loopHandleBounds();
+    check(!tight[0].intersects(tight[1]), "short loop uses separate rows for its two labels");
+    loopDrag(0, {2000, 0});
+    check(uiProcessor.value("loopStart") < uiProcessor.value("loopEnd"),
+          "loop flag drag cannot cross the other loop boundary");
+    uiProcessor.setParameter("loopStart", 0);
+    uiProcessor.setParameter("loopEnd", 1);
+    for (auto flag : waveform->loopHandleBounds())
+        check(waveform->getLocalBounds().toFloat().contains(flag),
+              "full-sample loop flags remain visible inside the waveform");
+    auto shiftStart = juce::Point<float>(waveform->getWidth() * .1f, 40);
+    waveform->mouseDown(mouse(shiftStart, shiftStart, false, juce::ModifierKeys::shiftModifier));
+    waveform->mouseUp(mouse(shiftStart, shiftStart, false, juce::ModifierKeys::shiftModifier));
+    check(std::abs(uiProcessor.value("loopStart") - .1f) < .001, "Shift-drag loop editing remains available");
     editor.setSize(1170, 555);
     auto small = editor.createComponentSnapshot(editor.getLocalBounds());
     check(small.getWidth() == 1170 && small.getHeight() == 555, "native editor renders at minimum size");
@@ -329,7 +382,7 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
     }
     const juce::String getApplicationVersion() override
     {
-        return "0.2";
+        return "0.2.1";
     }
     void initialise(const juce::String &args) override
     {
@@ -348,11 +401,14 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
             quit();
             return;
         }
-        demo = args.startsWith("--envelope-demo");
-        directory =
-            juce::File(args.fromFirstOccurrenceOf(demo ? "--envelope-demo" : "--screenshots", false, false)
-                           .trim()
-                           .unquoted());
+        bool loopDemo = args.startsWith("--loop-demo");
+        demo = args.startsWith("--envelope-demo") || loopDemo;
+        directory = juce::File(args.fromFirstOccurrenceOf(loopDemo ? "--loop-demo"
+                                                          : demo   ? "--envelope-demo"
+                                                                   : "--screenshots",
+                                                          false, false)
+                                   .trim()
+                                   .unquoted());
         directory.createDirectory();
         processor = std::make_unique<RaSamplerProcessor>();
         processor->prepareToPlay(48000, 512);
@@ -362,6 +418,12 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
             processor->setParameter("ampDecay", 90);
             processor->setParameter("ampSustain", .8f);
             processor->setParameter("ampRelease", 80);
+        }
+        if (loopDemo)
+        {
+            processor->setParameter("loop", 1);
+            processor->setParameter("loopStart", .2f);
+            processor->setParameter("loopEnd", .8f);
         }
         editor = std::make_unique<RaSamplerEditor>(*processor);
         editor->addToDesktop(0);
