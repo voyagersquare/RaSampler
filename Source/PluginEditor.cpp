@@ -234,25 +234,55 @@ RaControl::RaControl(RaSamplerProcessor &p, const juce::String &parameter, bool 
                                compact ? 84 : 80, 19);
         slider.setDoubleClickReturnValue(true, spec->initial);
         slider.setPopupDisplayEnabled(false, false, nullptr);
-        slider.setTextValueSuffix(spec->unit.isEmpty() ? "" : " " + spec->unit);
+        slider.setTextValueSuffix(spec->unit.isEmpty() || spec->unit == "Hz" ? "" : " " + spec->unit);
         slider.setNumDecimalPlacesToDisplay((spec->id == "root" || spec->id == "polyphony" ||
                                              spec->id == "transpose" || spec->id == "oscTune" ||
                                              spec->id == "bendRange")
                                                 ? 0
                                                 : 2);
-        if (id == "root")
-            slider.textFromValueFunction = [](double v)
-            { return juce::MidiMessage::getMidiNoteName(int(v), true, true, 3); };
-        if (id == "pan")
-            slider.textFromValueFunction = [](double v)
-            {
-                return std::abs(v) < .01 ? juce::String("C")
-                                         : juce::String(int(std::abs(v) * 100)) + (v < 0 ? " L" : " R");
-            };
         addAndMakeVisible(slider);
         sa = std::make_unique<ra::APVTS::SliderAttachment>(p.state, id, slider);
+        slider.textFromValueFunction = [parameter, unit = spec->unit](double value)
+        {
+            if (parameter == "root")
+                return juce::MidiMessage::getMidiNoteName(int(value), true, true, 3);
+            if (parameter == "pan")
+                return std::abs(value) < .01
+                           ? juce::String("C")
+                           : juce::String(int(std::abs(value) * 100)) + (value < 0 ? " L" : " R");
+            if (unit == "Hz")
+                return value >= 1000 ? juce::String(value / 1000, 1) + " kHz"
+                                     : juce::String(value, 1) + " Hz";
+            bool integer = parameter == "transpose" || parameter == "polyphony" || parameter == "bendRange" ||
+                           parameter == "oscTune";
+            return juce::String(value, integer ? 0 : 2);
+        };
+        if (id == "root")
+            slider.valueFromTextFunction = [](const juce::String &value)
+            {
+                for (int n = 0; n < 128; ++n)
+                    if (value.trim().equalsIgnoreCase(juce::MidiMessage::getMidiNoteName(n, true, true, 3)))
+                        return double(n);
+                return value.getDoubleValue();
+            };
+        if (id == "pan")
+            slider.valueFromTextFunction = [](const juce::String &value)
+            {
+                auto s = value.trim();
+                if (s.equalsIgnoreCase("C"))
+                    return 0.;
+                if (s.endsWithIgnoreCase("L"))
+                    return -std::abs(s.getDoubleValue()) / 100.;
+                if (s.endsWithIgnoreCase("R"))
+                    return std::abs(s.getDoubleValue()) / 100.;
+                return s.getDoubleValue();
+            };
+        if (spec->unit == "Hz")
+            slider.valueFromTextFunction = [](const juce::String &value)
+            { return value.getDoubleValue() * (value.containsIgnoreCase("k") ? 1000. : 1.); };
+        slider.updateText();
         slider.onDragStart = [&p, parameter]
-        { p.setStatus("Editing " + parameter + " · double-click restores default"); };
+        { p.setStatus("Editing " + parameter + " | double-click restores default"); };
     }
 }
 void RaControl::resized()
@@ -539,21 +569,22 @@ RaSamplerEditor::RaSamplerEditor(RaSamplerProcessor &p)
     keyboard.setBounds(112, 296, 993, 79);
     keyboard.setKeyWidth(23.6f);
     keyboard.setAvailableRange(0, 127);
-    keyboard.setLowestVisibleKey(12);
-    keyboard.setScrollButtonsVisible(false);
+    keyboard.setLowestVisibleKey(24);
+    keyboard.setScrollButtonsVisible(true);
+    keyboard.setScrollButtonWidth(1);
     keyboard.setOctaveForMiddleC(3);
     keyboard.setWantsKeyboardFocus(true);
     octDown.setBounds(28, 339, 65, 27);
     octUp.setBounds(28, 307, 65, 27);
     octDown.onClick = [this]
     {
-        octave = juce::jmax(-1, octave - 1);
-        keyboard.setLowestVisibleKey(12 + octave * 12);
+        octave = juce::jmax(-2, octave - 1);
+        keyboard.setLowestVisibleKey(24 + octave * 12);
     };
     octUp.onClick = [this]
     {
-        octave = juce::jmin(5, octave + 1);
-        keyboard.setLowestVisibleKey(12 + octave * 12);
+        octave = juce::jmin(3, octave + 1);
+        keyboard.setLowestVisibleKey(24 + octave * 12);
     };
     savePreset.setBounds(1168, 711, 70, 23);
     loadPreset.setBounds(1245, 711, 70, 23);
@@ -592,7 +623,7 @@ RaSamplerEditor::RaSamplerEditor(RaSamplerProcessor &p)
     learn.onClick = [this]
     {
         processor.learnTarget = learnChoice.getSelectedId() - 1;
-        processor.setStatus("MIDI Learn armed · move one CC controller");
+        processor.setStatus("MIDI Learn armed | move one CC controller");
     };
     clearLearn.onClick = [this]
     {
@@ -659,22 +690,22 @@ void RaSamplerEditor::buildTab()
              {"saturationOn", "saturationType", "saturationDrive", "saturationOutput", "saturationMix"});
         break;
     case 1:
-        card(14, 400, 504, 298, "SAMPLE", "Playback boundaries · positions in samples",
+        card(14, 400, 504, 298, "SAMPLE", "Playback boundaries | positions in samples",
              {"start", "end", "root", "sampleGain", "fadeIn", "fadeOut", "snap", "reverse"});
         card(526, 400, 504, 298, "LOOP", "Shift-drag waveform to adjust loop markers",
              {"loop", "loopStart", "loopEnd", "playMode"});
-        card(1038, 400, 508, 298, "TIME-STRETCH", "Offline WSOLA · change duration, retain pitch",
+        card(1038, 400, 508, 298, "TIME-STRETCH", "Offline WSOLA | change duration, retain pitch",
              {"stretch"});
         break;
     case 2:
         card(14, 400, 380, 298, "PITCH", "Tune the sample", {"root", "transpose", "detune", "stretch"});
         card(402, 400, 566, 298, "PITCH ENVELOPE", "Shape pitch over time",
              {"pitchAttack", "pitchDecay", "pitchSustain", "pitchRelease", "pitchAmount"});
-        card(976, 400, 570, 298, "OSCILLATOR", "Additional sound source · shares amplitude envelope",
+        card(976, 400, 570, 298, "OSCILLATOR", "Additional sound source | shares amplitude envelope",
              {"oscOn", "oscWave", "oscLevel", "oscTune"});
         break;
     case 3:
-        card(14, 400, 450, 298, "FILTER", "Per-voice filter · sample and oscillator",
+        card(14, 400, 450, 298, "FILTER", "Per-voice filter | sample and oscillator",
              {"filterOn", "filterType", "cutoff", "resonance", "drive", "peqGain"});
         card(472, 400, 464, 298, "AMPLITUDE", "Per-voice ADSR",
              {"ampAttack", "ampDecay", "ampSustain", "ampRelease"});
@@ -688,7 +719,8 @@ void RaSamplerEditor::buildTab()
              {"lfo2Wave", "lfo2Sync", "lfo2Rate", "lfo2Division", "lfo2Retrigger"});
         card(554, 400, 310, 298, "FILTER ENVELOPE", "Cutoff envelope",
              {"filterAttack", "filterDecay", "filterSustain", "filterRelease", "filterAmount"});
-        cards.push_back({{872, 400, 674, 298}, "MODULATION MATRIX", "Source → destination · bipolar amount"});
+        cards.push_back(
+            {{872, 400, 674, 298}, "MODULATION MATRIX", "Source -> destination | bipolar amount"});
         for (int i = 0; i < 8; ++i)
         {
             int y = 452 + i * 29;
@@ -710,6 +742,8 @@ void RaSamplerEditor::buildTab()
              {"playMode", "polyphony", "glide", "ampRelease"});
         break;
     }
+    for (auto &c : controls)
+        c->resized();
     // Attachments inherit normalized ranges; positions are shown as samples rather than fractions.
     for (auto &c : controls)
         if (c->id == "start" || c->id == "end" || c->id == "loopStart" || c->id == "loopEnd")
@@ -733,7 +767,7 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     panel(g, {14, 284, 1104, 104});
     panel(g, {1128, 284, 418, 104});
     write(g, "EFFECTS CHAIN", {29, 94, 192, 24}, 16);
-    write(g, "⋮", {225, 122, 15, 140}, 17, muted, juce::Justification::centred);
+    write(g, ":", {225, 122, 15, 140}, 17, muted, juce::Justification::centred);
     for (int i = 0; i < 5; ++i)
     {
         auto r = juce::Rectangle<float>(25, 123.f + i * 27, 216, 25);
@@ -751,7 +785,7 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     write(g, "RaSampler", {24, 710, 122, 25}, 16, orange);
     write(g, "0.1", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
     auto s = processor.sample();
-    write(g, juce::String(s->rate / 1000., 1) + " kHz · " + juce::String(s->length() / s->rate, 2) + " s",
+    write(g, juce::String(s->rate / 1000., 1) + " kHz | " + juce::String(s->length() / s->rate, 2) + " s",
           {963, 94, 104, 28}, 11, muted, juce::Justification::centredRight);
     for (auto &c : cards)
     {
@@ -766,7 +800,7 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     if (tab == 5)
     {
         write(g,
-              processor.learnTarget.load() >= 0 ? "Waiting for MIDI CC…"
+              processor.learnTarget.load() >= 0 ? "Waiting for MIDI CC..."
               : processor.lastLearned.load() >= 0
                   ? "Mapped controller: CC " + juce::String(processor.lastLearned.load())
                   : "Mappings are saved with the DAW project and presets.",
@@ -776,7 +810,7 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     {
         write(g, "Open an audio file using its name above, or drop it here.", {1060, 595, 464, 24}, 13,
               muted);
-        write(g, "WAV · AIFF · FLAC · OGG · MP3", {1060, 622, 464, 24}, 13, muted);
+        write(g, "WAV | AIFF | FLAC | OGG | MP3", {1060, 622, 464, 24}, 13, muted);
     }
     float db = juce::Decibels::gainToDecibels(level, -60.f);
     g.setColour(black);
@@ -796,6 +830,14 @@ void RaSamplerEditor::timerCallback()
         selectTab(processor.selectedTab.load());
     auto s = processor.sample();
     filename.setButtonText(s->name);
+    if (displayedLength != s->length())
+    {
+        displayedLength = s->length();
+        for (auto *list : {&persistent, &controls})
+            for (auto &c : *list)
+                if (c->id == "start" || c->id == "end" || c->id == "loopStart" || c->id == "loopEnd")
+                    c->slider.updateText();
+    }
     for (int i = 0; i < 5; ++i)
     {
         int fx = juce::jlimit(0, 4, int(processor.value("fxOrder" + juce::String(i))));
@@ -803,8 +845,8 @@ void RaSamplerEditor::timerCallback()
         fxButtons[i].setToggleState(processor.value(effectIDs[fx]) > .5f, juce::dontSendNotification);
     }
     level = juce::jmax(processor.meter.load(), level * .83f);
-    status.setText((processor.stretchBusy.load() ? "Processing time-stretch…" : processor.status()) +
-                       "  ·  Voices " + juce::String(processor.activeVoices.load()) + "  ·  " +
+    status.setText((processor.stretchBusy.load() ? "Processing time-stretch..." : processor.status()) +
+                       "  |  Voices " + juce::String(processor.activeVoices.load()) + "  |  " +
                        juce::String(juce::Decibels::gainToDecibels(level, -60.f), 1) + " dBFS",
                    juce::dontSendNotification);
     wave.repaint();
@@ -886,7 +928,7 @@ void RaSamplerEditor::preset(bool save)
                 safe->processor.getStateInformation(data);
                 auto file = f.getResult().withFileExtension("rasampler");
                 safe->processor.setStatus(file.replaceWithData(data.getData(), data.getSize())
-                                              ? "Preset saved · sample embedded"
+                                              ? "Preset saved | sample embedded"
                                               : "Could not save preset");
             }
             else

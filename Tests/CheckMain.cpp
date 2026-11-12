@@ -77,7 +77,8 @@ static void test()
     p.getStateInformation(saved);
     RaSamplerProcessor restored;
     restored.setStateInformation(saved.getData(), int(saved.getSize()));
-    check(restored.value("reverse") > .5f && restored.value("loop") > .5f && restored.value("peqGain") == 9,
+    check(restored.value("reverse") > .5f && restored.value("loop") > .5f &&
+              std::abs(restored.value("peqGain") - 9.f) < .0001f,
           "DAW state restores parameters");
     auto original = ra::makeInitSample();
     auto stretched = ra::stretchSample(*original, 1.5);
@@ -106,6 +107,9 @@ static void test()
     p.setParameter("loop", 1);
     p.setParameter("ampRelease", 1);
     p.panic = true;
+    midi.clear();
+    p.processBlock(b, midi);
+    midi.clear();
     midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.f), 0);
     p.processBlock(b, midi);
     midi.clear();
@@ -116,6 +120,69 @@ static void test()
         midi.clear();
     }
     check(p.activeVoices.load() == 0, "gate note-off releases voice");
+    p.panic = true;
+    midi.clear();
+    p.processBlock(b, midi);
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, .8f), 0);
+    midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 40);
+    midi.addEvent(juce::MidiMessage::noteOff(1, 60), 100);
+    p.processBlock(b, midi);
+    check(p.activeVoices.load() == 1, "sustain pedal holds released note");
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 0);
+    p.processBlock(b, midi);
+    check(p.activeVoices.load() == 0, "pedal release releases held note");
+    p.setParameter("polyphony", 2);
+    midi.clear();
+    for (int note = 60; note < 63; ++note)
+        midi.addEvent(juce::MidiMessage::noteOn(1, note, .7f), 0);
+    p.processBlock(b, midi);
+    check(p.activeVoices.load() == 2, "polyphony limit and voice stealing");
+    p.panic = true;
+    midi.clear();
+    p.processBlock(b, midi);
+    midi.clear();
+    p.setParameter("playMode", 1);
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, .8f), 0);
+    midi.addEvent(juce::MidiMessage::noteOff(1, 60), 100);
+    p.processBlock(b, midi);
+    check(p.activeVoices.load() == 1, "one-shot ignores ordinary note-off");
+    int target = 0;
+    for (size_t i = 0; i < ra::specs().size(); ++i)
+        if (ra::specs()[i].id == "cutoff")
+            target = int(i);
+    p.learnTarget = target;
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::controllerEvent(1, 74, 100), 0);
+    p.processBlock(b, midi);
+    p.getStateInformation(saved);
+    auto learned = juce::ValueTree::readFromData(saved.getData(), saved.getSize());
+    check(learned.getChildWithName("MidiMap").getProperty("cc74").toString() == "cutoff",
+          "CC learn mapping stored by parameter ID");
+    restored.setStateInformation(saved.getData(), int(saved.getSize()));
+    restored.getStateInformation(saved);
+    restored.setStateInformation(saved.getData(), int(saved.getSize()));
+    restored.getStateInformation(saved);
+    auto repeated = juce::ValueTree::readFromData(saved.getData(), saved.getSize());
+    int maps = 0;
+    for (auto child : repeated)
+        if (child.hasType("MidiMap"))
+            ++maps;
+    check(maps == 1, "repeated state round trips do not duplicate MIDI mappings");
+    ra::SampleData sine;
+    sine.rate = 44100;
+    sine.audio.setSize(2, 44100);
+    for (int i = 0; i < 44100; ++i)
+        for (int c = 0; c < 2; ++c)
+            sine.audio.setSample(c, i, .3f * std::sin(juce::MathConstants<double>::twoPi * 440 * i / 44100));
+    auto longSine = ra::stretchSample(sine, 1.5);
+    int crossings = 0;
+    for (int i = 4097; i < longSine->length() - 4096; ++i)
+        if (longSine->audio.getSample(0, i - 1) <= 0 && longSine->audio.getSample(0, i) > 0)
+            ++crossings;
+    double measured = crossings * 44100. / (longSine->length() - 8193);
+    check(std::abs(measured - 440) < 8, "time-stretch retains sine-wave pitch");
     std::cout << "All RaSampler checks passed." << std::endl;
 }
 class CheckApplication : public juce::JUCEApplication, private juce::Timer

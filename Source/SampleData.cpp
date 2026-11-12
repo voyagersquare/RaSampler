@@ -16,7 +16,7 @@ std::shared_ptr<const SampleData> decodeSample(const void *bytes, size_t size, c
     if (reader->lengthInSamples < 16 || reader->lengthInSamples > int64_t(reader->sampleRate * 600) ||
         reader->sampleRate < 8000 || reader->sampleRate > 384000)
     {
-        error = "Use an audio file between 16 samples and 10 minutes (8–384 kHz).";
+        error = "Use an audio file between 16 samples and 10 minutes (8-384 kHz).";
         return {};
     }
     auto s = std::make_shared<SampleData>();

@@ -108,7 +108,7 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     RaFilterGraph filterGraph;
     RaVelocity velocity;
     RaKeyboard keyboard;
-    juce::TextButton tabs[6], filename, previous{"<"}, next{">"}, octDown{"−"}, octUp{"+"},
+    juce::TextButton tabs[6], filename, previous{"<"}, next{">"}, octDown{"-"}, octUp{"+"},
         savePreset{"Save"}, loadPreset{"Load"}, init{"Init"}, panic{"Panic"}, learn{"Learn CC"},
         clearLearn{"Clear map"};
     juce::ToggleButton fxButtons[5];
@@ -124,7 +124,7 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     juce::TooltipWindow tooltip;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::File lastFile;
-    int tab = 0, octave = 0, dragFrom = -1, selectedFx = 0;
+    int tab = 0, octave = 0, dragFrom = -1, selectedFx = 0, displayedLength = -1;
     float level = 0;
     bool showLearn = false;
     void timerCallback() override;

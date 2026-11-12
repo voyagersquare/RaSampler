@@ -207,7 +207,8 @@ void RaSamplerProcessor::getStateInformation(juce::MemoryBlock &data)
     auto tree = state.copyState();
     auto s = originalSample();
     tree.setProperty("sampleName", s->name, nullptr);
-    tree.setProperty("sampleData", s->encoded.toBase64Encoding(), nullptr);
+    tree.setProperty("sampleData", s->encoded.getSize() > 0 ? s->encoded.toBase64Encoding() : juce::String(),
+                     nullptr);
     tree.setProperty("selectedTab", selectedTab.load(), nullptr);
     juce::ValueTree map("MidiMap");
     for (int i = 0; i < 128; ++i)
@@ -236,8 +237,9 @@ void RaSamplerProcessor::setStateInformation(const void *data, int size)
             setStatus("Preset sample data could not be decoded.");
             return;
         }
-        s = ra::decodeSample(bytes.getData(), bytes.getSize(), tree.getProperty("sampleName").toString(),
-                             error);
+        if (bytes.getSize() > 0)
+            s = ra::decodeSample(bytes.getData(), bytes.getSize(), tree.getProperty("sampleName").toString(),
+                                 error);
         if (!s)
         {
             setStatus(error);
@@ -262,7 +264,7 @@ void RaSamplerProcessor::setStateInformation(const void *data, int size)
                 mappings[size_t(cc)] = int(i);
     }
     setSample(s);
-    setStatus("Preset restored · sample embedded");
+    setStatus("Preset restored | sample embedded");
 }
 juce::AudioProcessorEditor *RaSamplerProcessor::createEditor()
 {

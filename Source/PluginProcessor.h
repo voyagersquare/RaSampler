@@ -82,7 +82,7 @@ class RaSamplerProcessor final : public juce::AudioProcessor, private juce::Thre
     std::array<std::atomic<int>, 128> mappings;
     std::unique_ptr<std::atomic<float>[]> pending;
     juce::CriticalSection messageLock;
-    juce::String message = "Ready · Drop an audio file onto the waveform";
+    juce::String message = "Ready | Drop an audio file onto the waveform";
     void run() override;
     void handleAsyncUpdate() override;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RaSamplerProcessor)
