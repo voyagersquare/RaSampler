@@ -26,3 +26,8 @@ target_sources(RaSamplerCheck PRIVATE Tests/CheckMain.cpp)
 target_link_libraries(RaSamplerCheck PRIVATE RaSampler juce::juce_audio_utils juce::juce_dsp)
 enable_testing()
 add_test(NAME RaSamplerDSP COMMAND RaSamplerCheck --self-test)
+
+if(MSVC)
+  target_compile_options(RaSampler PRIVATE /MP4)
+  target_compile_options(RaSamplerCheck PRIVATE /MP4)
+endif()
