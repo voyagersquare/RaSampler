@@ -359,9 +359,139 @@ void RaWave::paint(juce::Graphics &g)
             g.drawDashedLine({x, 15, x, float(getHeight() - 15)}, dashes, 2, 1);
         }
     }
+    paintEnvelope(g);
+}
+RaWave::EnvelopeGeometry RaWave::envelopeGeometry() const
+{
+    EnvelopeGeometry shape;
+    float left = juce::jmax(9.f, processor.value("start") * getWidth());
+    float right = juce::jmin(float(getWidth() - 9), processor.value("end") * getWidth());
+    if (right - left < 100)
+    {
+        left = 9;
+        right = float(getWidth() - 9);
+    }
+    shape.bounds = {left, 20.f, juce::jmax(1.f, right - left), juce::jmax(1.f, float(getHeight() - 34))};
+    auto sample = processor.sample();
+    float selectedMs = float(1000. * (sample->length() - 1) / sample->rate) *
+                       juce::jmax(0.f, processor.value("end") - processor.value("start"));
+    float attack = processor.value("ampAttack"), decay = processor.value("ampDecay"),
+          release = processor.value("ampRelease");
+    float hold = juce::jmax(20.f, (attack + decay + release) * .12f);
+    shape.previewMs = juce::jmax(selectedMs, attack + decay + release + hold);
+    float width = shape.bounds.getWidth(), top = shape.bounds.getY(), bottom = shape.bounds.getBottom();
+    float sustain = bottom - processor.value("ampSustain") * shape.bounds.getHeight();
+    float a = left + attack / shape.previewMs * width;
+    float d = left + (attack + decay) / shape.previewMs * width;
+    float releaseStart = right - release / shape.previewMs * width;
+    // Keep short stages selectable. Editing uses deltas, so clicking a node never changes its value.
+    a = juce::jlimit(left + 2, right - 38, a);
+    d = juce::jlimit(a + 12, right - 26, d);
+    releaseStart = juce::jlimit(d + 12, right - 12, releaseStart);
+    shape.handles = {juce::Point<float>(a, top),
+                     {d, sustain},
+                     {releaseStart, sustain},
+                     {(releaseStart + right) * .5f, (sustain + bottom) * .5f}};
+    return shape;
+}
+std::array<juce::Point<float>, 4> RaWave::envelopeHandles() const
+{
+    return envelopeGeometry().handles;
+}
+int RaWave::envelopeHit(juce::Point<float> point) const
+{
+    if (!processor.waveformEnvelope.load())
+        return -1;
+    auto handles = envelopeHandles();
+    float closest = 10;
+    int hit = -1;
+    for (int n = 0; n < 4; ++n)
+    {
+        float distance = point.getDistanceFrom(handles[size_t(n)]);
+        if (distance < closest)
+        {
+            closest = distance;
+            hit = n;
+        }
+    }
+    return hit;
+}
+void RaWave::paintEnvelope(juce::Graphics &g)
+{
+    if (!processor.waveformEnvelope.load())
+        return;
+    auto shape = envelopeGeometry();
+    auto &h = shape.handles;
+    juce::Path line;
+    line.startNewSubPath(shape.bounds.getX(), shape.bounds.getBottom());
+    line.lineTo(h[0]);
+    line.lineTo(h[1]);
+    line.lineTo(h[2]);
+    line.lineTo(shape.bounds.getRight(), shape.bounds.getBottom());
+    auto fill = line;
+    fill.closeSubPath();
+    g.setColour(juce::Colours::white.withAlpha(.045f));
+    g.fillPath(fill);
+    g.setColour(juce::Colours::black.withAlpha(.7f));
+    g.strokePath(line, juce::PathStrokeType(3.6f));
+    g.setColour(text.withAlpha(.95f));
+    g.strokePath(line, juce::PathStrokeType(1.5f));
+    static const char *names[] = {"A", "D", "S", "R"};
+    for (int i = 0; i < 4; ++i)
+    {
+        auto point = h[size_t(i)];
+        auto box = juce::Rectangle<float>(10, 10).withCentre(point);
+        g.setColour(black);
+        g.fillRoundedRectangle(box.expanded(1), 2);
+        g.setColour(orange);
+        g.fillRoundedRectangle(box, 2);
+        write(g, names[i], box.toNearestInt(), 8, black, juce::Justification::centred);
+    }
+    write(g, "ADSR | " + juce::String(shape.previewMs / 1000.f, 2) + " s preview",
+          {getWidth() - 179, 2, 174, 15}, 10, muted, juce::Justification::centredRight);
+}
+void RaWave::mouseMove(const juce::MouseEvent &e)
+{
+    int hit = envelopeHit(e.position);
+    setMouseCursor(hit >= 0 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+    static const char *ids[] = {"ampAttack", "ampDecay", "ampSustain", "ampRelease"};
+    static const char *names[] = {"Attack", "Decay / Sustain", "Sustain", "Release"};
+    setTooltip(hit >= 0 ? juce::String(names[hit]) + ": " + juce::String(processor.value(ids[hit]), 2) +
+                              (hit == 2 ? "" : " ms") +
+                              ". Drag to edit. Release begins at MIDI Note Off in Gate mode."
+                        : "Drag sample boundaries. Shift-drag loop boundaries. ADSR preview fits all stages; "
+                          "sustain duration follows MIDI Note Off.");
 }
 void RaWave::mouseDown(const juce::MouseEvent &e)
 {
+    if (!e.mods.isShiftDown() && (envelopeDrag = envelopeHit(e.position)) >= 0)
+    {
+        auto shape = envelopeGeometry();
+        envelopeMouseDown = e.position;
+        dragPreviewMs = shape.previewMs;
+        dragWidth = shape.bounds.getWidth();
+        dragHeight = shape.bounds.getHeight();
+        initialAttack = processor.value("ampAttack");
+        initialDecay = processor.value("ampDecay");
+        initialSustain = processor.value("ampSustain");
+        initialRelease = processor.value("ampRelease");
+        envelopeParameters.clear();
+        if (envelopeDrag == 0)
+            envelopeParameters.push_back("ampAttack");
+        if (envelopeDrag == 1)
+        {
+            envelopeParameters.push_back("ampDecay");
+            envelopeParameters.push_back("ampSustain");
+        }
+        if (envelopeDrag == 2)
+            envelopeParameters.push_back("ampSustain");
+        if (envelopeDrag == 3)
+            envelopeParameters.push_back("ampRelease");
+        for (auto &id : envelopeParameters)
+            processor.state.getParameter(id)->beginChangeGesture();
+        return;
+    }
+    envelopeDrag = -1;
     float x = e.position.x / getWidth();
     if (e.mods.isShiftDown())
         dragging = std::abs(x - processor.value("loopStart")) < std::abs(x - processor.value("loopEnd"))
@@ -376,6 +506,28 @@ void RaWave::mouseDown(const juce::MouseEvent &e)
 }
 void RaWave::mouseDrag(const juce::MouseEvent &e)
 {
+    if (envelopeDrag >= 0)
+    {
+        float dx = e.position.x - envelopeMouseDown.x, dy = e.position.y - envelopeMouseDown.y;
+        auto set = [this](const char *id, float value)
+        {
+            auto *p = processor.state.getParameter(id);
+            p->setValueNotifyingHost(p->convertTo0to1(p->getNormalisableRange().snapToLegalValue(value)));
+        };
+        if (envelopeDrag == 0)
+            set("ampAttack", initialAttack + dx * dragPreviewMs / dragWidth);
+        if (envelopeDrag == 1)
+        {
+            set("ampDecay", initialDecay + dx * dragPreviewMs / dragWidth);
+            set("ampSustain", initialSustain - dy / dragHeight);
+        }
+        if (envelopeDrag == 2)
+            set("ampSustain", initialSustain - dy / dragHeight);
+        if (envelopeDrag == 3)
+            set("ampRelease", initialRelease - 2 * dx * dragPreviewMs / dragWidth);
+        repaint();
+        return;
+    }
     if (dragging.isEmpty())
         return;
     float value = juce::jlimit(0.f, 1.f, e.position.x / getWidth());
@@ -398,6 +550,14 @@ void RaWave::mouseDrag(const juce::MouseEvent &e)
 }
 void RaWave::mouseUp(const juce::MouseEvent &)
 {
+    if (envelopeDrag >= 0)
+    {
+        for (auto &id : envelopeParameters)
+            processor.state.getParameter(id)->endChangeGesture();
+        envelopeParameters.clear();
+        envelopeDrag = -1;
+        return;
+    }
     if (auto *p = processor.state.getParameter(dragging))
         p->endChangeGesture();
     dragging.clear();
@@ -529,15 +689,25 @@ RaSamplerEditor::RaSamplerEditor(RaSamplerProcessor &p)
         tabs[i].setClickingTogglesState(false);
     }
     for (auto *c : std::initializer_list<juce::Component *>{
-             &wave, &filterGraph, &velocity, &keyboard, &filename, &previous, &next, &octDown, &octUp,
-             &savePreset, &loadPreset, &init, &panic, &status, &learn, &clearLearn, &learnChoice})
+             &wave, &filterGraph, &velocity, &keyboard, &filename, &envelopeToggle, &previous, &next,
+             &octDown, &octUp, &savePreset, &loadPreset, &init, &panic, &status, &learn, &clearLearn,
+             &learnChoice})
         canvas.addAndMakeVisible(c);
     wave.setBounds(276, 128, 792, 98);
     filterGraph.setBounds(1108, 132, 180, 122);
     velocity.setBounds(1144, 321, 120, 50);
-    filename.setBounds(306, 94, 620, 27);
+    filename.setBounds(306, 94, 528, 27);
+    envelopeToggle.setBounds(872, 94, 80, 27);
+    envelopeToggle.setTooltip("Show or hide the editable amplitude ADSR over the sample waveform");
+    envelopeToggle.onClick = [this]
+    {
+        processor.waveformEnvelope = !processor.waveformEnvelope.load();
+        envelopeToggle.setToggleState(processor.waveformEnvelope.load(), juce::dontSendNotification);
+        wave.repaint();
+    };
+    envelopeToggle.setToggleState(processor.waveformEnvelope.load(), juce::dontSendNotification);
     previous.setBounds(276, 94, 25, 27);
-    next.setBounds(931, 94, 25, 27);
+    next.setBounds(839, 94, 25, 27);
     filename.onClick = [this] { openSample(); };
     previous.onClick = [this] { adjacent(-1); };
     next.onClick = [this] { adjacent(1); };
@@ -784,7 +954,7 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     write(g, "Velocity", {1144, 293, 120, 22}, 14);
     write(g, "Octave", {27, 286, 70, 20}, 13);
     write(g, "RaSampler", {24, 710, 122, 25}, 16, orange);
-    write(g, "0.1", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
+    write(g, "0.2", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
     auto s = processor.sample();
     write(g, juce::String(s->rate / 1000., 1) + " kHz | " + juce::String(s->length() / s->rate, 2) + " s",
           {963, 94, 104, 28}, 11, muted, juce::Justification::centredRight);
@@ -831,6 +1001,7 @@ void RaSamplerEditor::timerCallback()
         selectTab(processor.selectedTab.load());
     auto s = processor.sample();
     filename.setButtonText(s->name);
+    envelopeToggle.setToggleState(processor.waveformEnvelope.load(), juce::dontSendNotification);
     if (displayedLength != s->length())
     {
         displayedLength = s->length();

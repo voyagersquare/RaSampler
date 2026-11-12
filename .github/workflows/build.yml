@@ -26,7 +26,10 @@ jobs:
           $validation = Start-Process -FilePath $validator -ArgumentList @('--headless', '--strictness-level', '5', '--timeout-ms', '120000', '--validate', "`"$plugin`"") -Wait -PassThru -NoNewWindow
           if ($validation.ExitCode -ne 0) { throw "pluginval failed with code $($validation.ExitCode)" }
       - name: Capture all six native editor pages
-        run: build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --screenshots build/screenshots
+        run: |
+          build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --screenshots build/screenshots
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --envelope-demo build/screenshots/ADSR
       - name: Assemble download
         shell: pwsh
         run: |

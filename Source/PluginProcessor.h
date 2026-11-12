@@ -70,7 +70,7 @@ class RaSamplerProcessor final : public juce::AudioProcessor, private juce::Thre
     void clearMappings();
     std::atomic<float> meter{0};
     std::atomic<int> activeVoices{0}, selectedTab{0}, learnTarget{-1}, lastLearned{-1};
-    std::atomic<bool> panic{false}, stretchBusy{false};
+    std::atomic<bool> panic{false}, stretchBusy{false}, waveformEnvelope{true};
     juce::String status() const;
     void setStatus(const juce::String &);
 

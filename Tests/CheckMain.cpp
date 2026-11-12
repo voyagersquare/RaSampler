@@ -216,6 +216,100 @@ static void test()
     auto *delayControl = findControl("delayTime", true);
     delayControl->slider.setValue(450, juce::sendNotificationSync);
     check(std::abs(uiProcessor.value("delayTime") - 450) < .01, "native knob updates audio parameter");
+    RaWave *waveform = nullptr;
+    auto *canvas = editor.getChildComponent(0);
+    for (int i = 0; i < canvas->getNumChildComponents(); ++i)
+        if (auto *candidate = dynamic_cast<RaWave *>(canvas->getChildComponent(i)))
+            waveform = candidate;
+    check(waveform != nullptr, "main sample view exposes ADSR overlay");
+    auto mouse =
+        [&](juce::Point<float> position, juce::Point<float> down, bool dragged = false, int extra = 0)
+    {
+        return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), position,
+                                juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier | extra), 1, 0, 0,
+                                0, 0, waveform, waveform, juce::Time::getCurrentTime(), down,
+                                juce::Time::getCurrentTime(), 1, dragged);
+    };
+    auto gesture = [&](int handle, juce::Point<float> delta)
+    {
+        auto start = waveform->envelopeHandles()[size_t(handle)];
+        waveform->mouseDown(mouse(start, start));
+        waveform->mouseDrag(mouse(start + delta, start, true));
+        waveform->mouseUp(mouse(start + delta, start, true));
+    };
+    float oldAttack = uiProcessor.value("ampAttack");
+    auto point = waveform->envelopeHandles()[0];
+    waveform->mouseDown(mouse(point, point));
+    waveform->mouseUp(mouse(point, point));
+    check(uiProcessor.value("ampAttack") == oldAttack, "clicking ADSR node does not change the sound");
+    gesture(0, {80, 0});
+    check(uiProcessor.value("ampAttack") > oldAttack + 20, "waveform Attack drag updates amplitude envelope");
+    gesture(1, {25, 18});
+    check(uiProcessor.value("ampDecay") > 200 && uiProcessor.value("ampSustain") < .9,
+          "Decay node controls decay time and sustain level");
+    float oldSustain = uiProcessor.value("ampSustain");
+    gesture(2, {0, 10});
+    check(uiProcessor.value("ampSustain") < oldSustain, "waveform Sustain drag updates level");
+    float oldRelease = uiProcessor.value("ampRelease");
+    gesture(3, {-30, 0});
+    check(uiProcessor.value("ampRelease") > oldRelease + 20, "waveform Release drag updates release time");
+    check(uiProcessor.value("start") == 0 && uiProcessor.value("end") == 1,
+          "ADSR editing preserves sample boundaries");
+    editor.selectTab(3);
+    auto *attackKnob = findControl("ampAttack", true);
+    check(attackKnob && std::abs(attackKnob->slider.getValue() - uiProcessor.value("ampAttack")) < .001,
+          "waveform and amplitude knobs stay synchronized");
+    auto before = waveform->envelopeHandles()[3];
+    findControl("ampRelease", true)->slider.setValue(300, juce::sendNotificationSync);
+    check(waveform->envelopeHandles()[3].getDistanceFrom(before) > 1,
+          "amplitude knob updates waveform envelope geometry");
+    uiProcessor.waveformEnvelope = false;
+    juce::MemoryBlock envelopeState;
+    uiProcessor.getStateInformation(envelopeState);
+    RaSamplerProcessor envelopeRestored;
+    envelopeRestored.setStateInformation(envelopeState.getData(), int(envelopeState.getSize()));
+    check(!envelopeRestored.waveformEnvelope.load() &&
+              std::abs(envelopeRestored.value("ampAttack") - uiProcessor.value("ampAttack")) < .001,
+          "preset restores ADSR parameters and overlay visibility");
+    auto legacy = juce::ValueTree::readFromData(envelopeState.getData(), envelopeState.getSize());
+    legacy.removeProperty("waveformEnvelope", nullptr);
+    juce::MemoryBlock legacyState;
+    {
+        juce::MemoryOutputStream stream(legacyState, false);
+        legacy.writeToStream(stream);
+    }
+    envelopeRestored.setStateInformation(legacyState.getData(), int(legacyState.getSize()));
+    check(envelopeRestored.waveformEnvelope.load(), "older presets open with the ADSR overlay available");
+    uiProcessor.waveformEnvelope = true;
+    gesture(0, {-20000, 0});
+    gesture(3, {-20000, 0});
+    check(uiProcessor.value("ampAttack") >= .1f && uiProcessor.value("ampRelease") <= 10000,
+          "ADSR drags clamp to legal parameter ranges");
+    uiProcessor.setParameter("start", .999f);
+    for (auto h : waveform->envelopeHandles())
+        check(std::isfinite(h.x) && std::isfinite(h.y) && waveform->getLocalBounds().toFloat().contains(h),
+              "ADSR handles remain accessible for very short sample selections");
+    uiProcessor.setParameter("start", 0);
+    uiProcessor.setParameter("snap", 0);
+    auto trim = juce::Point<float>(waveform->getWidth() * .2f, float(waveform->getHeight() - 1));
+    waveform->mouseDown(mouse(trim, trim));
+    waveform->mouseUp(mouse(trim, trim));
+    check(std::abs(uiProcessor.value("start") - .2f) < .001,
+          "sample trimming still works outside ADSR nodes");
+    uiProcessor.setParameter("start", 0);
+    uiProcessor.setParameter("ampAttack", 200);
+    uiProcessor.setParameter("reverse", 0);
+    uiProcessor.prepareToPlay(48000, 512);
+    RaSamplerProcessor fastEnvelope;
+    fastEnvelope.prepareToPlay(48000, 512);
+    juce::AudioBuffer<float> fastAudio(2, 512), slowAudio(2, 512);
+    juce::MidiBuffer fastMidi, slowMidi;
+    fastMidi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.f), 0);
+    slowMidi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.f), 0);
+    fastEnvelope.processBlock(fastAudio, fastMidi);
+    uiProcessor.processBlock(slowAudio, slowMidi);
+    check(energy(slowAudio) > 0 && energy(slowAudio) < energy(fastAudio) * .2,
+          "amplitude Attack setting audibly changes rendered samples");
     editor.setSize(1170, 555);
     auto small = editor.createComponentSnapshot(editor.getLocalBounds());
     check(small.getWidth() == 1170 && small.getHeight() == 555, "native editor renders at minimum size");
@@ -230,7 +324,7 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
     }
     const juce::String getApplicationVersion() override
     {
-        return "0.1";
+        return "0.2";
     }
     void initialise(const juce::String &args) override
     {
@@ -249,10 +343,21 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
             quit();
             return;
         }
-        directory = juce::File(args.fromFirstOccurrenceOf("--screenshots", false, false).trim().unquoted());
+        demo = args.startsWith("--envelope-demo");
+        directory =
+            juce::File(args.fromFirstOccurrenceOf(demo ? "--envelope-demo" : "--screenshots", false, false)
+                           .trim()
+                           .unquoted());
         directory.createDirectory();
         processor = std::make_unique<RaSamplerProcessor>();
         processor->prepareToPlay(48000, 512);
+        if (demo)
+        {
+            processor->setParameter("ampAttack", 60);
+            processor->setParameter("ampDecay", 90);
+            processor->setParameter("ampSustain", .8f);
+            processor->setParameter("ampRelease", 80);
+        }
         editor = std::make_unique<RaSamplerEditor>(*processor);
         editor->addToDesktop(0);
         editor->setVisible(true);
@@ -274,6 +379,7 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
     std::unique_ptr<RaSamplerEditor> editor;
     juce::File directory;
     int page = 0;
+    bool demo = false;
     void timerCallback() override
     {
         editor->selectTab(page);
@@ -296,7 +402,7 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
             return;
         }
         std::cout << file.getFullPathName() << std::endl;
-        if (++page == 6)
+        if (++page == (demo ? 1 : 6))
         {
             stopTimer();
             quit();

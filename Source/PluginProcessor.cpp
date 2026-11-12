@@ -210,6 +210,7 @@ void RaSamplerProcessor::getStateInformation(juce::MemoryBlock &data)
     tree.setProperty("sampleData", s->encoded.getSize() > 0 ? s->encoded.toBase64Encoding() : juce::String(),
                      nullptr);
     tree.setProperty("selectedTab", selectedTab.load(), nullptr);
+    tree.setProperty("waveformEnvelope", waveformEnvelope.load(), nullptr);
     juce::ValueTree map("MidiMap");
     for (int i = 0; i < 128; ++i)
     {
@@ -254,6 +255,7 @@ void RaSamplerProcessor::setStateInformation(const void *data, int size)
             parametersOnly.removeChild(i, nullptr);
     state.replaceState(parametersOnly);
     selectedTab = juce::jlimit(0, 5, int(tree.getProperty("selectedTab", 0)));
+    waveformEnvelope = bool(tree.getProperty("waveformEnvelope", true));
     clearMappings();
     auto map = tree.getChildWithName("MidiMap");
     for (int cc = 0; cc < 128; ++cc)

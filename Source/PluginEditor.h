@@ -28,7 +28,7 @@ class RaControl : public juce::Component
     std::unique_ptr<ra::APVTS::ComboBoxAttachment> ca;
     std::unique_ptr<ra::APVTS::ButtonAttachment> ba;
 };
-class RaWave : public juce::Component
+class RaWave : public juce::Component, public juce::SettableTooltipClient
 {
   public:
     explicit RaWave(RaSamplerProcessor &p) : processor(p) {}
@@ -36,8 +36,24 @@ class RaWave : public juce::Component
     void mouseDown(const juce::MouseEvent &) override;
     void mouseDrag(const juce::MouseEvent &) override;
     void mouseUp(const juce::MouseEvent &) override;
+    void mouseMove(const juce::MouseEvent &) override;
+    std::array<juce::Point<float>, 4> envelopeHandles() const;
 
   private:
+    struct EnvelopeGeometry
+    {
+        juce::Rectangle<float> bounds;
+        std::array<juce::Point<float>, 4> handles;
+        float previewMs = 500;
+    };
+    EnvelopeGeometry envelopeGeometry() const;
+    void paintEnvelope(juce::Graphics &);
+    int envelopeHit(juce::Point<float>) const;
+    std::vector<juce::String> envelopeParameters;
+    juce::Point<float> envelopeMouseDown;
+    float dragPreviewMs = 500, dragWidth = 1, dragHeight = 1;
+    float initialAttack = 1, initialDecay = 200, initialSustain = 1, initialRelease = 100;
+    int envelopeDrag = -1;
     RaSamplerProcessor &processor;
     juce::String dragging;
     int cachedLength = 0;
@@ -108,8 +124,8 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     RaFilterGraph filterGraph;
     RaVelocity velocity;
     RaKeyboard keyboard;
-    juce::TextButton tabs[6], filename, previous{"<"}, next{">"}, octDown{"-"}, octUp{"+"},
-        savePreset{"Save"}, loadPreset{"Load"}, init{"Init"}, panic{"Panic"}, learn{"Learn CC"},
+    juce::TextButton tabs[6], filename, envelopeToggle{"ADSR"}, previous{"<"}, next{">"}, octDown{"-"},
+        octUp{"+"}, savePreset{"Save"}, loadPreset{"Load"}, init{"Init"}, panic{"Panic"}, learn{"Learn CC"},
         clearLearn{"Clear map"};
     juce::ToggleButton fxButtons[5];
     juce::ComboBox learnChoice;
