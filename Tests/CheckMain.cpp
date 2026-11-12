@@ -297,6 +297,11 @@ static void test()
     check(std::abs(uiProcessor.value("start") - .2f) < .001,
           "sample trimming still works outside ADSR nodes");
     uiProcessor.setParameter("start", 0);
+    uiProcessor.setParameter("ampRelease", 1);
+    uiProcessor.setParameter("ampSustain", 0);
+    auto shortReleaseHandles = waveform->envelopeHandles();
+    check(shortReleaseHandles[2].getDistanceFrom(shortReleaseHandles[3]) >= 10,
+          "Sustain and Release nodes remain independently selectable at minimum release");
     uiProcessor.setParameter("ampAttack", 200);
     uiProcessor.setParameter("reverse", 0);
     uiProcessor.prepareToPlay(48000, 512);

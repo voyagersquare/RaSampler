@@ -385,9 +385,9 @@ RaWave::EnvelopeGeometry RaWave::envelopeGeometry() const
     float d = left + (attack + decay) / shape.previewMs * width;
     float releaseStart = right - release / shape.previewMs * width;
     // Keep short stages selectable. Editing uses deltas, so clicking a node never changes its value.
-    a = juce::jlimit(left + 2, right - 38, a);
-    d = juce::jlimit(a + 12, right - 26, d);
-    releaseStart = juce::jlimit(d + 12, right - 12, releaseStart);
+    a = juce::jlimit(left + 2, right - 50, a);
+    d = juce::jlimit(a + 12, right - 38, d);
+    releaseStart = juce::jlimit(d + 12, right - 24, releaseStart);
     shape.handles = {juce::Point<float>(a, top),
                      {d, sustain},
                      {releaseStart, sustain},

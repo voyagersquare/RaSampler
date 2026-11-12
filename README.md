@@ -4,7 +4,9 @@ Windows x64 VST3 sampler instrument, by Voyagersquare. Native C++17 / JUCE 8.0.6
 
 Jedan učitani sample, šest kartica, bez zona. Tamno metalno sučelje s narančastim kontrolama prema dogovorenim referentnim slikama. Svi gumbi i parametri donjih panela povezani su s instrumentom.
 
-![RaSampler Effects](docs/screenshots/0-Effects.png)
+![RaSampler ADSR](docs/screenshots/ADSR.png)
+
+Prikaz nove ADSR ovojnice s primjerom postavki Attack 60 ms, Decay 90 ms, Sustain 0.8 i Release 80 ms. Početne zvučne postavke instrumenta ostaju iste.
 
 [Pregled svih šest kartica](docs/screenshots/)
 
