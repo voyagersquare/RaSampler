@@ -120,16 +120,7 @@ void Engine::beginRelease(Voice &v)
         return;
     v.held = v.pedal = false;
     v.releasing = true;
-    int mode =
-        effectiveReleaseMode(int(p("loopSustainMode")), int(p("loopReleaseMode")), p("loopLink") > .5f);
-    if (p("loop") > .5f && mode == 0)
-    {
-        v.active = false;
-        v.amp.reset();
-        v.filter.reset();
-        v.pitchEnv.reset();
-        return;
-    }
+    v.releaseEntryPending = true;
     v.amp.noteOff();
     v.filter.noteOff();
     v.pitchEnv.noteOff();
@@ -192,11 +183,20 @@ void Engine::event(const juce::MidiMessage &m, std::shared_ptr<const SampleData>
         v.held = true;
         v.pedal = false;
         v.releasing = false;
+        v.releaseEntryPending = false;
         v.reverseOrientation = p("reverse") > .5f;
         v.direction = v.reverseOrientation ? -1 : 1;
         v.pressure = -1;
         v.pos =
             p("reverse") > .5f ? p("end") * (v.sample->length() - 1) : p("start") * (v.sample->length() - 1);
+        if (p("loop") > .5f && p("loopSustainMode") > .5f && p("loopLink") > .5f)
+        {
+            int n = v.sample->length() - 1;
+            int begin = 0, end = juce::jlimit(begin + 1, n, int(p("end") * n));
+            int a = juce::jlimit(begin, end - 1, int(p("loopStart") * n)),
+                b = juce::jlimit(a + 1, end, int(p("loopEnd") * n));
+            v.pos = v.reverseOrientation ? b : a;
+        }
         v.pitch = p("glide") > 0 ? lastNote : float(v.note);
         lastNote = float(v.note);
         v.oscPhase = 0;
@@ -349,7 +349,9 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
     const float c_glide = p("glide");
     const float c_loop = p("loop");
     const int sustainMode = juce::jlimit(0, 2, int(p("loopSustainMode")));
-    const int releaseMode = effectiveReleaseMode(sustainMode, int(p("loopReleaseMode")), p("loopLink") > .5f);
+    const int releaseMode = juce::jlimit(0, 3, int(p("loopReleaseMode")));
+    const bool linkStart = p("loopLink") > .5f;
+    const float releaseStart = p("releaseLoopStart");
     const float c_loopEnd = p("loopEnd");
     const float c_loopStart = p("loopStart");
     const float c_oscLevel = p("oscLevel");
@@ -395,7 +397,9 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
         if (!v.active || !v.sample)
             continue;
         auto &s = *v.sample;
-        int begin = juce::jlimit(0, s.length() - 2, int(c_start * (s.length() - 1))),
+        int begin = juce::jlimit(
+                0, s.length() - 2,
+                int((c_loop > .5f && sustainMode > 0 && linkStart ? 0.f : c_start) * (s.length() - 1))),
             end = juce::jlimit(begin + 1, s.length() - 1, int(c_end * (s.length() - 1)));
         int loopA = juce::jlimit(begin, end - 1, int(c_loopStart * (s.length() - 1))),
             loopB = juce::jlimit(loopA + 1, end, int(c_loopEnd * (s.length() - 1)));
@@ -405,13 +409,26 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
             v.direction = -v.direction;
             v.reverseOrientation = reverse;
         }
-        int loopMode = c_loop > .5f ? (v.releasing ? releaseMode - 1 : sustainMode) : 0;
-        if (c_loop > .5f && v.releasing && releaseMode == 0)
+        if (c_loop > .5f && sustainMode > 0 && linkStart)
+            begin = loopA;
+        int loopMode = c_loop > .5f ? sustainMode : 0;
+        if (v.releasing && c_loop > .5f && sustainMode > 0 && releaseMode > 0)
         {
-            v.active = false;
-            v.amp.reset();
-            continue;
+            loopMode = releaseMode - 1;
+            if (reverse)
+            {
+                loopA = begin;
+                loopB = juce::jlimit(begin + 1, end, int(releaseStart * (s.length() - 1)));
+            }
+            else
+            {
+                loopA = juce::jlimit(begin, end - 1, int(releaseStart * (s.length() - 1)));
+                loopB = end;
+            }
+            if (v.releaseEntryPending)
+                v.direction = reverse ? -1 : 1;
         }
+        v.releaseEntryPending = false;
         if (loopMode != 2)
             v.direction = reverse ? -1 : 1;
         v.amp.setParameters(env(c_ampAttack, c_ampDecay, c_ampSustain, c_ampRelease));

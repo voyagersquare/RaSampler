@@ -366,9 +366,9 @@ void RaControl::resized()
 RaLoopModes::RaLoopModes(RaSamplerProcessor &p) : processor(p)
 {
     const char *names[] = {"One-shot", "Forward", "Ping-pong"};
-    const char *descriptions[] = {"Play once in the direction selected by Reverse, without repeating.",
-                                  "Repeat LOOP IN to LOOP OUT in the direction selected by Reverse.",
-                                  "Alternate between LOOP IN and LOOP OUT (ping-pong)."};
+    const char *descriptions[] = {"Play once toward the sample end, following Reverse.",
+                                  "Repeat the loop in the direction selected by Reverse.",
+                                  "Play the loop back and forth (ping-pong)."};
     for (int i = 0; i < 3; ++i)
     {
         auto &b = sustain[i];
@@ -380,9 +380,7 @@ RaLoopModes::RaLoopModes(RaSamplerProcessor &p) : processor(p)
         b.onClick = [this, i]
         {
             processor.setParameter("loopSustainMode", float(i));
-            if (processor.value("loopLink") > .5f)
-                processor.setParameter("loopReleaseMode", float(i + 1));
-            refresh();
+            changed();
         };
     }
     for (int i = 0; i < 4; ++i)
@@ -394,35 +392,40 @@ RaLoopModes::RaLoopModes(RaSamplerProcessor &p) : processor(p)
         b.setName("Release / " + name);
         b.getProperties().set("loopModeIcon", i);
         b.setTooltip(
-            i == 0
-                ? "Release OFF: stop the voice immediately on Note Off (after the sustain pedal is lifted)."
-                : "After Note Off: " + juce::String(descriptions[i - 1]) +
-                      " The amplitude ADSR Release still controls fade-out time.");
+            i == 0 ? "OFF: continue the Sustain loop while the amplitude ADSR completes Release."
+            : i == 1
+                ? "After Note Off, leave the Sustain loop and play toward the sample end, following Reverse."
+                : "After Note Off, play toward the sample end, then repeat from Release Loop. The amplitude "
+                  "ADSR controls fade-out time.");
         b.onClick = [this, i]
         {
-            if (i == 0)
-                processor.setParameter("loopLink", 0);
-            else if (processor.value("loopLink") > .5f)
-                processor.setParameter("loopSustainMode", float(i - 1));
             processor.setParameter("loopReleaseMode", float(i));
-            refresh();
+            changed();
         };
     }
     addAndMakeVisible(link);
-    link.setName("Link Loop Modes");
-    link.setTooltip("Link Release Mode to Sustain Mode. Both use the existing LOOP IN / LOOP OUT markers. "
-                    "Release OFF unlinks the modes.");
+    link.setName("Link Sample Start");
+    link.setTooltip("Link Sample Start to Sustain Loop Start. The original Sample Start value is preserved "
+                    "and restored when Link is turned off. Reverse starts at the opposite loop edge.");
     link.onClick = [this]
     {
-        bool linked = processor.value("loopLink") > .5f;
-        int effective = ra::effectiveReleaseMode(int(processor.value("loopSustainMode")),
-                                                 int(processor.value("loopReleaseMode")), linked);
-        processor.setParameter("loopReleaseMode",
-                               float(linked ? effective : int(processor.value("loopSustainMode")) + 1));
-        processor.setParameter("loopLink", linked ? 0.f : 1.f);
-        refresh();
+        processor.setParameter("loopLink", processor.value("loopLink") > .5f ? 0.f : 1.f);
+        changed();
     };
+    releaseStart = std::make_unique<RaControl>(processor, "releaseLoopStart", true);
+    addAndMakeVisible(*releaseStart);
+    releaseStart->label.setVisible(false);
+    releaseStart->slider.textFromValueFunction = [this](double value)
+    { return juce::String(juce::int64(value * (processor.sample()->length() - 1))); };
+    releaseStart->slider.valueFromTextFunction = [this](const juce::String &text)
+    { return text.getDoubleValue() / juce::jmax(1, processor.sample()->length() - 1); };
     refresh();
+}
+void RaLoopModes::changed()
+{
+    refresh();
+    if (auto *owner = findParentComponentOfClass<RaSamplerEditor>())
+        owner->loopSettingsChanged();
 }
 void RaLoopModes::resized()
 {
@@ -431,24 +434,23 @@ void RaLoopModes::resized()
     for (int i = 0; i < 4; ++i)
         release[i].setBounds(142 + i * 63, 48, 55, 32);
     link.setBounds(350, 0, 110, 32);
+    releaseStart->setBounds(142, 94, 244, 23);
 }
 void RaLoopModes::paint(juce::Graphics &g)
 {
-    bool enabled = processor.value("loop") > .5f, gate = processor.value("playMode") < .5f;
+    bool enabled = processor.value("loop") > .5f, gate = processor.value("playMode") < .5f,
+         releaseEnabled = enabled && gate && processor.value("loopSustainMode") > .5f;
     write(g, "Sustain Mode", {0, 0, 134, 32}, 14, enabled ? text : muted);
-    write(g, "Release Mode", {0, 48, 134, 32}, 14, enabled && gate ? text : muted);
-    write(g,
-          !enabled ? "Enable Loop to use these modes."
-          : !gate  ? "Select Gate playback to use Release Mode."
-                   : "Release follows Note Off and the amplitude ADSR.",
-          {0, 91, getWidth(), 20}, 11, muted);
+    write(g, "Release Mode", {0, 48, 134, 32}, 14, releaseEnabled ? text : muted);
+    write(g, "Release Loop", {0, 88, 134, 32}, 13, processor.releaseLoopEnabled() ? text : muted);
 }
 void RaLoopModes::refresh()
 {
     bool enabled = processor.value("loop") > .5f, gate = processor.value("playMode") < .5f,
          linked = processor.value("loopLink") > .5f;
     int sm = juce::jlimit(0, 2, int(processor.value("loopSustainMode"))),
-        rm = ra::effectiveReleaseMode(sm, int(processor.value("loopReleaseMode")), linked);
+        rm = juce::jlimit(0, 3, int(processor.value("loopReleaseMode")));
+    bool releaseEnabled = enabled && gate && sm > 0;
     for (int i = 0; i < 3; ++i)
     {
         sustain[i].setToggleState(i == sm, juce::dontSendNotification);
@@ -458,12 +460,21 @@ void RaLoopModes::refresh()
     for (int i = 0; i < 4; ++i)
     {
         release[i].setToggleState(i == rm, juce::dontSendNotification);
-        release[i].setEnabled(enabled && gate);
-        release[i].setAlpha(enabled && gate ? 1.f : .35f);
+        release[i].setEnabled(releaseEnabled);
+        release[i].setAlpha(releaseEnabled ? 1.f : .35f);
+        release[i].setTooltip(
+            !gate     ? "Release Mode requires Gate playback."
+            : sm == 0 ? "Enable a forward or ping-pong Sustain loop to use Release Mode."
+            : i == 0  ? "OFF continues the Sustain loop during ADSR Release."
+            : i == 1  ? "Continue toward the sample end during ADSR Release."
+                      : "Play toward the sample end, then use the Release Loop during ADSR Release.");
     }
     link.setToggleState(linked, juce::dontSendNotification);
-    link.setEnabled(enabled);
-    link.setAlpha(enabled ? 1.f : .35f);
+    link.setEnabled(enabled && sm > 0);
+    link.setAlpha(enabled && sm > 0 ? 1.f : .35f);
+    releaseStart->setEnabled(processor.releaseLoopEnabled());
+    releaseStart->setAlpha(processor.releaseLoopEnabled() ? 1.f : .35f);
+    releaseStart->slider.updateText();
     repaint();
 }
 void RaWave::paint(juce::Graphics &g)
@@ -501,7 +512,7 @@ void RaWave::paint(juce::Graphics &g)
     g.setColour(orange);
     g.fillPath(waveform);
     g.drawHorizontalLine(getHeight() / 2, 0, float(getWidth()));
-    float a = processor.value("start") * getWidth(), b = processor.value("end") * getWidth();
+    float a = processor.effectiveSampleStart() * getWidth(), b = processor.value("end") * getWidth();
     g.setColour(juce::Colours::black.withAlpha(.65f));
     g.fillRect(0.f, 0.f, a, float(getHeight()));
     g.fillRect(b, 0.f, getWidth() - b, float(getHeight()));
@@ -536,11 +547,26 @@ int RaWave::loopHit(juce::Point<float> point) const
 {
     if (processor.value("loop") < .5f)
         return -1;
+    if (processor.releaseLoopEnabled() && releaseHandleBounds().expanded(3).contains(point))
+        return 2;
     auto handles = loopHandleBounds();
     for (int n = 0; n < 2; ++n)
         if (handles[size_t(n)].expanded(3).contains(point))
             return n;
     return -1;
+}
+juce::Rectangle<float> RaWave::releaseHandleBounds() const
+{
+    float x = processor.value("releaseLoopStart") * getWidth();
+    auto box = juce::Rectangle<float>(juce::jlimit(12.f, juce::jmax(12.f, float(getWidth() - 88)), x + 8),
+                                      float(getHeight() - 35), 76, 15);
+    for (auto sustain : loopHandleBounds())
+        if (box.expanded(2).intersects(sustain))
+        {
+            box.translate(0, -18);
+            break;
+        }
+    return box;
 }
 void RaWave::paintLoopMarkers(juce::Graphics &g)
 {
@@ -572,11 +598,28 @@ void RaWave::paintLoopMarkers(juce::Graphics &g)
         write(g, n == 0 ? "LOOP IN" : "LOOP OUT", box.toNearestInt(), 10, black,
               juce::Justification::centred);
     }
+    if (processor.releaseLoopEnabled())
+    {
+        juce::Colour purple(0xffce9dff);
+        float x = juce::jlimit(1.f, float(getWidth() - 2), processor.value("releaseLoopStart") * getWidth());
+        auto box = releaseHandleBounds();
+        g.setColour(black);
+        g.drawLine(x, 15, x, float(getHeight() - 18), 5);
+        g.setColour(purple);
+        g.drawLine(x, 15, x, float(getHeight() - 18), 2.5f);
+        g.drawLine(x, 15, x + 8, 15, 2);
+        g.drawLine(x, float(getHeight() - 18), box.getX() + 7, box.getY(), 1.5f);
+        g.setColour(black);
+        g.fillRoundedRectangle(box.expanded(1.5f), 3);
+        g.setColour(purple);
+        g.fillRoundedRectangle(box, 2.5f);
+        write(g, "REL LOOP", box.toNearestInt(), 10, black, juce::Justification::centred);
+    }
 }
 RaWave::EnvelopeGeometry RaWave::envelopeGeometry() const
 {
     EnvelopeGeometry shape;
-    float left = juce::jmax(9.f, processor.value("start") * getWidth());
+    float left = juce::jmax(9.f, processor.effectiveSampleStart() * getWidth());
     float right = juce::jmin(float(getWidth() - 9), processor.value("end") * getWidth());
     if (right - left < 100)
     {
@@ -586,7 +629,7 @@ RaWave::EnvelopeGeometry RaWave::envelopeGeometry() const
     shape.bounds = {left, 20.f, juce::jmax(1.f, right - left), juce::jmax(1.f, float(getHeight() - 34))};
     auto sample = processor.sample();
     float selectedMs = float(1000. * (sample->length() - 1) / sample->rate) *
-                       juce::jmax(0.f, processor.value("end") - processor.value("start"));
+                       juce::jmax(0.f, processor.value("end") - processor.effectiveSampleStart());
     float attack = processor.value("ampAttack"), decay = processor.value("ampDecay"),
           release = processor.value("ampRelease");
     float hold = juce::jmax(20.f, (attack + decay + release) * .12f);
@@ -668,8 +711,9 @@ void RaWave::mouseMove(const juce::MouseEvent &e)
     if (loop >= 0)
     {
         setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-        setTooltip(loop == 0 ? "LOOP IN: drag to move the start of the loop"
-                             : "LOOP OUT: drag to move the end of the loop");
+        setTooltip(loop == 0   ? "LOOP IN: drag to move the start of the loop"
+                   : loop == 1 ? "LOOP OUT: drag to move the end of the loop"
+                               : "REL LOOP: set the independent Release Loop start");
         return;
     }
     int hit = envelopeHit(e.position);
@@ -716,14 +760,21 @@ void RaWave::mouseDown(const juce::MouseEvent &e)
     envelopeDrag = -1;
     float x = e.position.x / getWidth();
     if (loopHandle >= 0)
-        dragging = loopHandle == 0 ? "loopStart" : "loopEnd";
+        dragging = loopHandle == 0 ? "loopStart" : loopHandle == 1 ? "loopEnd" : "releaseLoopStart";
     else if (e.mods.isShiftDown())
         dragging = std::abs(x - processor.value("loopStart")) < std::abs(x - processor.value("loopEnd"))
                        ? "loopStart"
                        : "loopEnd";
     else
-        dragging =
-            std::abs(x - processor.value("start")) < std::abs(x - processor.value("end")) ? "start" : "end";
+        dragging = std::abs(x - processor.effectiveSampleStart()) < std::abs(x - processor.value("end"))
+                       ? "start"
+                       : "end";
+    if (dragging == "start" && processor.sampleStartLinked())
+    {
+        dragging.clear();
+        processor.setStatus("Sample Start is linked to LOOP IN; disable Link to edit the stored start.");
+        return;
+    }
     loopDragOffset = loopHandle >= 0 ? processor.value(dragging) - x : 0.f;
     if (auto *p = processor.state.getParameter(dragging))
         p->beginChangeGesture();
@@ -763,13 +814,17 @@ void RaWave::mouseDrag(const juce::MouseEvent &e)
     if (dragging == "start")
         value = juce::jmin(value, processor.value("end") - gap);
     if (dragging == "end")
-        value = juce::jmax(value, processor.value("start") + gap);
+        value = juce::jmax(value, processor.effectiveSampleStart() + gap);
     if (dragging == "loopStart")
-        value = juce::jlimit(processor.value("start"),
-                             juce::jmax(processor.value("start"), processor.value("loopEnd") - gap), value);
+        value = juce::jlimit(processor.sampleStartLinked() ? 0.f : processor.value("start"),
+                             juce::jmax(processor.sampleStartLinked() ? 0.f : processor.value("start"),
+                                        processor.value("loopEnd") - gap),
+                             value);
     if (dragging == "loopEnd")
         value = juce::jlimit(juce::jmin(processor.value("end"), processor.value("loopStart") + gap),
                              processor.value("end"), value);
+    if (dragging == "releaseLoopStart")
+        value = juce::jlimit(processor.effectiveSampleStart(), processor.value("end"), value);
     if (auto *p = processor.state.getParameter(dragging))
         p->setValueNotifyingHost(p->convertTo0to1(value));
     repaint();
@@ -1165,12 +1220,17 @@ void RaSamplerEditor::buildTab()
     for (auto &c : controls)
         if (c->id == "start" || c->id == "end" || c->id == "loopStart" || c->id == "loopEnd")
         {
-            c->slider.textFromValueFunction = [this](double v)
-            { return juce::String(juce::int64(v * (processor.sample()->length() - 1))); };
+            c->slider.textFromValueFunction = [this, id = c->id](double v)
+            {
+                return juce::String(juce::int64(
+                    (id == "start" && processor.sampleStartLinked() ? processor.effectiveSampleStart() : v) *
+                    (processor.sample()->length() - 1)));
+            };
             c->slider.valueFromTextFunction = [this](const juce::String &s)
             { return s.getDoubleValue() / juce::jmax(1, processor.sample()->length() - 1); };
             c->slider.updateText();
         }
+    loopSettingsChanged();
     repaint();
 }
 void RaSamplerEditor::paint(juce::Graphics &g)
@@ -1245,6 +1305,20 @@ void RaSamplerEditor::resized()
     canvas.setBounds(0, 0, 1560, 740);
     canvas.setTransform(juce::AffineTransform::scale(float(getWidth()) / 1560.f, float(getHeight()) / 740.f));
 }
+void RaSamplerEditor::loopSettingsChanged()
+{
+    bool linked = processor.sampleStartLinked();
+    for (auto &c : controls)
+        if (c->id == "start")
+        {
+            c->setEnabled(!linked);
+            c->setAlpha(linked ? .5f : 1.f);
+            if (linked || linked != startWasLinked)
+                c->slider.updateText();
+        }
+    startWasLinked = linked;
+    wave.repaint();
+}
 void RaSamplerEditor::rootNoteChanged(bool forceFocus)
 {
     int note = juce::jlimit(ra::rootMinNote, ra::rootMaxNote, juce::roundToInt(processor.value("root")));
@@ -1261,6 +1335,7 @@ void RaSamplerEditor::rootNoteChanged(bool forceFocus)
 }
 void RaSamplerEditor::timerCallback()
 {
+    loopSettingsChanged();
     if (loopModes)
         loopModes->refresh();
     rootNoteChanged();

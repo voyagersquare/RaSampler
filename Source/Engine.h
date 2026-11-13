@@ -24,7 +24,7 @@ struct Voice
 {
     bool active = false, held = false, pedal = false;
     int note = 60, channel = 1, direction = 1;
-    bool releasing = false, reverseOrientation = false;
+    bool releasing = false, reverseOrientation = false, releaseEntryPending = false;
     uint64_t age = 0;
     double pos = 0, pitch = 60, oscPhase = 0;
     float velocity = 1, random = 0, pressure = -1;

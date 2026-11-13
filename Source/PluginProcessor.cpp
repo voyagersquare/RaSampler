@@ -185,6 +185,23 @@ void RaSamplerProcessor::resetParameters()
         setParameter(s.id, s.initial);
     requestStretch();
 }
+bool RaSamplerProcessor::sampleStartLinked() const
+{
+    return value("loop") > .5f && value("loopSustainMode") > .5f && value("loopLink") > .5f;
+}
+float RaSamplerProcessor::effectiveSampleStart() const
+{
+    float start = value("start");
+    if (!sampleStartLinked())
+        return start;
+    return juce::jlimit(0.f, juce::jmax(0.f, value("end") - 1.f / juce::jmax(1, sample()->length() - 1)),
+                        value("loopStart"));
+}
+bool RaSamplerProcessor::releaseLoopEnabled() const
+{
+    return value("loop") > .5f && value("loopSustainMode") > .5f && value("playMode") < .5f &&
+           value("loopReleaseMode") >= 2;
+}
 void RaSamplerProcessor::globalReset()
 {
     clearMappings();
@@ -268,7 +285,7 @@ void RaSamplerProcessor::setStateInformation(const void *data, int size)
         if (parametersOnly.getChild(i).hasType("MidiMap"))
             parametersOnly.removeChild(i, nullptr);
     state.replaceState(parametersOnly);
-    for (auto id : {"loopSustainMode", "loopReleaseMode", "loopLink"})
+    for (auto id : {"loopSustainMode", "loopReleaseMode", "loopLink", "releaseLoopStart"})
         if (!tree.getChildWithProperty("id", id).isValid())
             if (auto *parameter = state.getParameter(id))
                 parameter->setValueNotifyingHost(parameter->getDefaultValue());

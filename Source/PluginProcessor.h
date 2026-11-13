@@ -68,6 +68,9 @@ class RaSamplerProcessor final : public juce::AudioProcessor, private juce::Thre
     void reorder(int, int);
     void resetParameters();
     void globalReset();
+    bool sampleStartLinked() const;
+    float effectiveSampleStart() const;
+    bool releaseLoopEnabled() const;
     void clearMappings();
     std::atomic<float> meter{0};
     std::atomic<int> activeVoices{0}, selectedTab{0}, learnTarget{-1}, lastLearned{-1};

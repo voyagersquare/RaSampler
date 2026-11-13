@@ -39,6 +39,8 @@ class RaLoopModes : public juce::Component
     void refresh();
 
   private:
+    void changed();
+    std::unique_ptr<RaControl> releaseStart;
     RaSamplerProcessor &processor;
     juce::TextButton sustain[3], release[4], link{"Link"};
 };
@@ -53,6 +55,7 @@ class RaWave : public juce::Component, public juce::SettableTooltipClient
     void mouseMove(const juce::MouseEvent &) override;
     std::array<juce::Point<float>, 4> envelopeHandles() const;
     std::array<juce::Rectangle<float>, 2> loopHandleBounds() const;
+    juce::Rectangle<float> releaseHandleBounds() const;
 
   private:
     struct EnvelopeGeometry
@@ -134,6 +137,7 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     void openSample();
     void loadFile(const juce::File &);
     void rootNoteChanged(bool forceFocus = false);
+    void loopSettingsChanged();
 
   private:
     RaSamplerProcessor &processor;
@@ -162,7 +166,7 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     juce::File lastFile;
     int tab = 0, octave = 0, dragFrom = -1, selectedFx = 0, displayedLength = -1, displayedRoot = -1;
     float level = 0;
-    bool showLearn = false;
+    bool showLearn = false, startWasLinked = false;
     void timerCallback() override;
     void buildTab();
     RaControl &control(const juce::String &, juce::Rectangle<int>, bool compact = false, bool always = false);
