@@ -8,7 +8,7 @@ Jedan učitani sample, šest kartica, bez zona. Tamno metalno sučelje s naranč
 
 Prikaz nove ADSR ovojnice s primjerom postavki Attack 60 ms, Decay 90 ms, Sustain 0.8 i Release 80 ms. Početne zvučne postavke instrumenta ostaju iste.
 
-[Pregled svih šest kartica](docs/screenshots/) · [Novi LOOP markeri](docs/screenshots/Loop.png)
+[Pregled svih šest kartica](docs/screenshots/) · [Novi LOOP markeri](docs/screenshots/Loop.png) · [Root Note C1–C4](docs/screenshots/Root.png)
 
 ## Preuzimanje i instalacija
 
