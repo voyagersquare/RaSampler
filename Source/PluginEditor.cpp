@@ -268,7 +268,7 @@ RaControl::RaControl(RaSamplerProcessor &p, const juce::String &parameter, bool 
             slider.onValueChange = [this]
             {
                 if (auto *owner = findParentComponentOfClass<RaSamplerEditor>())
-                    owner->rootNoteChanged();
+                    owner->rootNoteChanged(true);
             };
         }
         if (id == "pan")
@@ -1096,10 +1096,10 @@ void RaSamplerEditor::resized()
     canvas.setBounds(0, 0, 1560, 740);
     canvas.setTransform(juce::AffineTransform::scale(float(getWidth()) / 1560.f, float(getHeight()) / 740.f));
 }
-void RaSamplerEditor::rootNoteChanged()
+void RaSamplerEditor::rootNoteChanged(bool forceFocus)
 {
     int note = juce::jlimit(ra::rootMinNote, ra::rootMaxNote, juce::roundToInt(processor.value("root")));
-    if (displayedRoot == note)
+    if (displayedRoot == note && !forceFocus)
         return;
     displayedRoot = note;
     auto key = keyboard.getRectangleForKey(note);

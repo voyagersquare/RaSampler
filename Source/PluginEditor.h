@@ -121,7 +121,7 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     void selectTab(int);
     void openSample();
     void loadFile(const juce::File &);
-    void rootNoteChanged();
+    void rootNoteChanged(bool forceFocus = false);
 
   private:
     RaSamplerProcessor &processor;
