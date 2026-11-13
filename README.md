@@ -12,7 +12,7 @@ Prikaz nove ADSR ovojnice s primjerom postavki Attack 60 ms, Decay 90 ms, Sustai
 
 ## Preuzimanje i instalacija
 
-Preuzmite **RaSampler-Windows-x64-Installer** iz zadnje uspješne GitHub Actions izgradnje. Raspakirajte ZIP i pokrenite **RaSampler-0.6.0-Windows-x64-Setup.exe**. Standardni Windows čarobnjak nudi VST3 instrument i opcionalnu samostalnu aplikaciju. Instalacija traži administratorska prava i podržava Windows 10/11 x64.
+[**Preuzmi Windows installer RaSampler 0.6.0**](https://github.com/voyagersquare/RaSampler/actions/runs/43424842408/artifacts/14036781625) — paket **RaSampler-Windows-x64-Installer**. Raspakirajte ZIP i pokrenite **RaSampler-0.6.0-Windows-x64-Setup.exe**. Standardni Windows čarobnjak nudi VST3 instrument i opcionalnu samostalnu aplikaciju. Instalacija traži administratorska prava i podržava Windows 10/11 x64.
 
 - **Proizvođač:** Independent Audio, u DAW-u, Windows svojstvima datoteka i popisu instaliranih aplikacija.
 - **VST3:** `C:\Program Files\Common Files\VST3\RaSampler.vst3` — standardna mapa za skeniranje VST3 instrumenata.
@@ -55,7 +55,7 @@ build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --screenshots build/sc
 
 Za izradu standardnog installera instalirajte i **Inno Setup 6.7.4**, zatim pokrenite `Build-Installer.cmd`. Ako je Release build već izrađen: `powershell -NoProfile -ExecutionPolicy Bypass -File Installer/Build-Installer.ps1 -SkipBuild`. Setup i SHA-256 zapis nastaju u `build/installer/`. MSVC runtime ugrađen je statički, bez dodatne instalacije Visual C++ redistributable paketa.
 
-GitHub Actions dodatno provjerava stvarnu instalaciju, identičnost instaliranih datoteka, proizvođača, Windows registraciju, VST3 validaciju iz instalacijske mape, pokretanje samostalne aplikacije, prečace, nadogradnju/popravak, VST3-only instalaciju i deinstalaciju uz očuvanje preseta. Testovi instalacije izvode se samo na privremenom Windows runneru.
+GitHub Actions dodatno provjerava stvarnu instalaciju, identičnost instaliranih datoteka, proizvođača, Windows registraciju, VST3 validaciju iz instalacijske mape, pokretanje samostalne aplikacije, prečace, nadogradnju/popravak, VST3-only instalaciju i deinstalaciju uz očuvanje preseta. Svih 13 stavki instalacijskog izvještaja prolazi, uključujući očuvanje dodatnih korisničkih datoteka i čišćenje praznih mapa prethodno ručno kopiranog VST3 paketa. Testovi instalacije izvode se samo na privremenom Windows runneru.
 
 CMake preuzima JUCE s fiksnog commita. Gotovi plugin: `build/RaSampler_artefacts/Release/VST3/RaSampler.vst3`. Izgradnja na Linuxu također je podržana za provjeru; potrebni su standardni JUCE X11, ALSA i font development paketi.
 
