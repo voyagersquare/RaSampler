@@ -8,7 +8,7 @@ Jedan učitani sample, šest kartica, bez zona. Tamno metalno sučelje s naranč
 
 Prikaz nove ADSR ovojnice s primjerom postavki Attack 60 ms, Decay 90 ms, Sustain 0.8 i Release 80 ms. Početne zvučne postavke instrumenta ostaju iste.
 
-[Pregled svih šest kartica](docs/screenshots/) · [Novi LOOP markeri](docs/screenshots/Loop.png) · [Root Note C1–C4](docs/screenshots/Root.png)
+[Pregled svih šest kartica](docs/screenshots/) · [Novi LOOP markeri](docs/screenshots/Loop.png) · [Root Note C1–C4](docs/screenshots/Root.png) · [Sustain / Release / Link](docs/screenshots/LoopModes.png)
 
 ## Preuzimanje i instalacija
 
@@ -24,7 +24,7 @@ Prozor se otvara na **75% (1170 × 555 px)**. Izbornik **Size** u donjoj traci n
 - Granice Start/End i Loop Start/End prikazane su u sampleovima. Povucite bijele markere za Start/End; Tirkizni LOOP IN / LOOP OUT markeri imaju debele linije i velike označene ručke; povucite ručku izravno ili koristite Shift-povlačenje u waveformu. Kratke petlje dobivaju dvije odvojene razine oznaka radi lakšeg odabira. Snap poravnava na lokalni tranzijent.
 - **Sustain Mode / Release Mode / Link:** kartica Sample → LOOP. Sustain bira jednokratnu reprodukciju, ponavljanje naprijed ili ping-pong unutar LOOP IN/OUT. Release OFF nastavlja Sustain petlju tijekom amplitudnog ADSR otpuštanja. Release One-shot izlazi prema kraju sampla; Forward i Ping-pong zatim koriste zaseban početak **Release Loop** i kraj sampla. Release Loop možete upisati ili povlačiti ljubičasti REL LOOP marker na waveformu. **Link povezuje Sample Start s LOOP IN**, uz očuvanje izvornog Start položaja koji se vraća nakon isključivanja Linka. Kod Reverse reprodukcije smjerovi i rubovi su obrnuti; povezani početak reprodukcije je LOOP OUT. Release radi uz aktivnu Sustain petlju u Gate načinu i poštuje sustain pedalu; u Playback One-shot načinu red je zasivljen. Sve postavke spremaju se s projektom/presetom i vraćaju preko Global Reset. Stariji preseti zadržavaju prethodno ponašanje petlje.
 - **ADSR na waveformu:** gumb ADSR uz naziv datoteke prikazuje bijelu amplitudnu ovojnicu s narančastim točkama A, D, S i R. A se povlači vodoravno za Attack; D vodoravno za Decay i okomito za Sustain; S okomito za Sustain; R (sredina silazne linije) vodoravno za Release — ulijevo za dulji release. Kontrole su povezane s amplitudnim ADSR-om na Filter/Global. Prikaz automatski prilagođava raspon da sve faze ostanu vidljive; navedeno trajanje je pregled ovojnice, ne položaj MIDI Note Off u sampleu. Vrlo kratke faze imaju minimalni vizualni razmak radi odabira. Shift-povlačenje i dalje uređuje petlju. Skriveni prikaz ne isključuje zvučnu ovojnicu. Parametri i vidljivost spremaju se s projektom/presetom.
-- Gate slijedi Note Off i ADSR. One-shot svira do završetka uzorka; uz uključen Loop svira do Panic/All Notes Off. Petlja koristi zasebne granice. Fade In/Out odnose se na rubove izrezanog uzorka.
+- Gate slijedi Note Off i ADSR. One-shot ignorira obični Note Off; bez ponavljanja svira do završetka uzorka, a uz aktivnu ponavljajuću Sustain petlju do Panic/All Notes Off. Petlja koristi zasebne granice. Fade In/Out odnose se na rubove izrezanog uzorka.
 - Effects otvara svih pet panela istovremeno. Kvačice uključuju efekte. Povucite ručku desno od naziva u Effects Chainu da promijenite redoslijed. Ploče efekata ostaju na stalnim mjestima.
 - Pitch/Osc ima transpose, detune, pitch ADSR, dodatni oscilator i vremensku obradu. Oscilator dijeli amplitudnu ovojnicu i filter sa sampleom.
 - **Time-stretch** radi offline WSOLA obradom u pozadinskoj niti, čuva visinu pri promjeni trajanja od 0.25× do 4× (najdulji obrađeni uzorak: 10 minuta). Nove note koriste obrađeni sample kad obrada završi; već pokrenuti glasovi završavaju sa svojom verzijom. To nije sustav beat/warp markera. Standardno MIDI transponiranje mijenja brzinu i trajanje reprodukcije.
@@ -48,7 +48,7 @@ CMake preuzima JUCE s fiksnog commita. Gotovi plugin: `build/RaSampler_artefacts
 
 ## Provjera i granice verzije
 
-`RaSamplerCheck --self-test` provjerava audio izlaz, točan MIDI offset, Panic, reverse petlju, oscilator, filtere/efekte, redoslijed efekata, state restore, WSOLA trajanje, ugrađivanje audio datoteke i Note Off. `--screenshots <mapa>` renderira stvarni native editor za svih šest kartica.
+`RaSamplerCheck --self-test` provjerava audio izlaz, točan MIDI offset, Panic, reverse petlju, oscilator, filtere/efekte, redoslijed efekata, state restore, WSOLA trajanje, ugrađivanje audio datoteke i Note Off. `--screenshots <mapa>` renderira stvarni native editor za svih šest kartica. Verzija 0.5.0 prolazi svih 154 provjere, uključujući Sustain/Release transport, Reverse, Link, povlačenje Release Loop markera i kompatibilnost preseta, te Windows VST3 pluginval validaciju na razini 5. `--loop-modes-demo <mapa>` prikazuje nove kontrole i markere.
 
 Ovo je početna verzija 0.5.0. Parametri Reverba Size i Decay zajedno se preslikavaju na JUCE reverb; Decay nije kalibrirano RT60 mjerenje. Saturation i square/saw oscilatori nemaju oversampling/antialiasing. WSOLA može dati artefakte na velikim omjerima ili složenim uzorcima. Nema crossfadea petlje; za diskontinuitet na spoju trebaju odgovarajuće granice. Potrebna je dodatna provjera u stvarnim Windows DAW-ovima prije produkcijske uporabe.
 
