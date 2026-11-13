@@ -114,6 +114,51 @@ static juce::ADSR::Parameters env(float a, float d, float s, float r)
 {
     return {a * .001f, d * .001f, s, r * .001f};
 }
+void Engine::beginRelease(Voice &v)
+{
+    if (!v.active || v.releasing)
+        return;
+    v.held = v.pedal = false;
+    v.releasing = true;
+    int mode =
+        effectiveReleaseMode(int(p("loopSustainMode")), int(p("loopReleaseMode")), p("loopLink") > .5f);
+    if (p("loop") > .5f && mode == 0)
+    {
+        v.active = false;
+        v.amp.reset();
+        v.filter.reset();
+        v.pitchEnv.reset();
+        return;
+    }
+    v.amp.noteOff();
+    v.filter.noteOff();
+    v.pitchEnv.noteOff();
+}
+// Reflect an arbitrary overshoot, including increments longer than a very short loop.
+static void advanceLoop(Voice &v, double increment, int a, int b, int mode)
+{
+    v.pos += v.direction * increment;
+    if (mode == 0)
+        return;
+    double length = b - a;
+    if (mode == 1)
+    {
+        if (v.direction > 0 && v.pos >= b)
+            v.pos = a + std::fmod(v.pos - a, length);
+        if (v.direction < 0 && v.pos < a)
+            v.pos = b - std::fmod(a - v.pos, length);
+    }
+    else if ((v.direction > 0 && v.pos > b) || (v.direction < 0 && v.pos < a))
+    {
+        double phase = std::fmod(v.pos - a, 2 * length);
+        if (phase < 0)
+            phase += 2 * length;
+        bool ascending = phase < length;
+        v.pos = ascending ? a + phase : b - (phase - length);
+        if (!ascending)
+            v.direction = -v.direction;
+    }
+}
 void Engine::event(const juce::MidiMessage &m, std::shared_ptr<const SampleData> sample)
 {
     int ch = juce::jlimit(0, 15, m.getChannel() - 1);
@@ -146,6 +191,9 @@ void Engine::event(const juce::MidiMessage &m, std::shared_ptr<const SampleData>
         v.active = true;
         v.held = true;
         v.pedal = false;
+        v.releasing = false;
+        v.reverseOrientation = p("reverse") > .5f;
+        v.direction = v.reverseOrientation ? -1 : 1;
         v.pressure = -1;
         v.pos =
             p("reverse") > .5f ? p("end") * (v.sample->length() - 1) : p("start") * (v.sample->length() - 1);
@@ -182,9 +230,7 @@ void Engine::event(const juce::MidiMessage &m, std::shared_ptr<const SampleData>
                         v.pedal = true;
                     else
                     {
-                        v.amp.noteOff();
-                        v.filter.noteOff();
-                        v.pitchEnv.noteOff();
+                        beginRelease(v);
                     }
                 }
             }
@@ -213,9 +259,7 @@ void Engine::event(const juce::MidiMessage &m, std::shared_ptr<const SampleData>
                     if (v.channel == ch + 1 && v.pedal)
                     {
                         v.pedal = false;
-                        v.amp.noteOff();
-                        v.filter.noteOff();
-                        v.pitchEnv.noteOff();
+                        beginRelease(v);
                     }
         }
         if (cc == 120)
@@ -233,9 +277,7 @@ void Engine::event(const juce::MidiMessage &m, std::shared_ptr<const SampleData>
                 if (v.channel == ch + 1)
                 {
                     v.held = v.pedal = false;
-                    v.amp.noteOff();
-                    v.filter.noteOff();
-                    v.pitchEnv.noteOff();
+                    beginRelease(v);
                 }
         }
     }
@@ -306,6 +348,8 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
     const float c_filterType = p("filterType");
     const float c_glide = p("glide");
     const float c_loop = p("loop");
+    const int sustainMode = juce::jlimit(0, 2, int(p("loopSustainMode")));
+    const int releaseMode = effectiveReleaseMode(sustainMode, int(p("loopReleaseMode")), p("loopLink") > .5f);
     const float c_loopEnd = p("loopEnd");
     const float c_loopStart = p("loopStart");
     const float c_oscLevel = p("oscLevel");
@@ -356,6 +400,20 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
         int loopA = juce::jlimit(begin, end - 1, int(c_loopStart * (s.length() - 1))),
             loopB = juce::jlimit(loopA + 1, end, int(c_loopEnd * (s.length() - 1)));
         bool reverse = c_reverse > .5f;
+        if (reverse != v.reverseOrientation)
+        {
+            v.direction = -v.direction;
+            v.reverseOrientation = reverse;
+        }
+        int loopMode = c_loop > .5f ? (v.releasing ? releaseMode - 1 : sustainMode) : 0;
+        if (c_loop > .5f && v.releasing && releaseMode == 0)
+        {
+            v.active = false;
+            v.amp.reset();
+            continue;
+        }
+        if (loopMode != 2)
+            v.direction = reverse ? -1 : 1;
         v.amp.setParameters(env(c_ampAttack, c_ampDecay, c_ampSustain, c_ampRelease));
         v.filter.setParameters(env(c_filterAttack, c_filterDecay, c_filterSustain, c_filterRelease));
         v.pitchEnv.setParameters(env(c_pitchAttack, c_pitchDecay, c_pitchSustain, c_pitchRelease));
@@ -363,8 +421,8 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
         {
             if (v.pos < begin || v.pos > end)
             {
-                if (c_loop > .5f)
-                    v.pos = reverse ? loopB : loopA;
+                if (loopMode > 0)
+                    v.pos = v.direction < 0 ? loopB : loopA;
                 else
                 {
                     v.active = false;
@@ -494,15 +552,7 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
                 float panGain = ch == 0 ? std::sqrt(1 - pan) : std::sqrt(1 + pan);
                 buffer.addSample(ch, offset + i, x * gain * panGain);
             }
-            v.pos += (reverse ? -increment : increment);
-            if (c_loop > .5f)
-            {
-                double length = loopB - loopA;
-                if (!reverse && v.pos >= loopB)
-                    v.pos = loopA + std::fmod(v.pos - loopA, length);
-                if (reverse && v.pos < loopA)
-                    v.pos = loopB - std::fmod(loopA - v.pos, length);
-            }
+            advanceLoop(v, increment, loopA, loopB, loopMode);
         }
     }
 }

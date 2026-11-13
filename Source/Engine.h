@@ -23,7 +23,8 @@ struct Biquad
 struct Voice
 {
     bool active = false, held = false, pedal = false;
-    int note = 60, channel = 1;
+    int note = 60, channel = 1, direction = 1;
+    bool releasing = false, reverseOrientation = false;
     uint64_t age = 0;
     double pos = 0, pitch = 60, oscPhase = 0;
     float velocity = 1, random = 0, pressure = -1;
@@ -59,6 +60,7 @@ class Engine
     std::array<bool, 16> sustain{};
     float lastNote = 60;
     void event(const juce::MidiMessage &, std::shared_ptr<const SampleData>);
+    void beginRelease(Voice &);
     void render(juce::AudioBuffer<float> &, int, int);
     void effects(juce::AudioBuffer<float> &);
     juce::AudioBuffer<float> delay, preDelay;

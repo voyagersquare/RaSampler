@@ -268,6 +268,10 @@ void RaSamplerProcessor::setStateInformation(const void *data, int size)
         if (parametersOnly.getChild(i).hasType("MidiMap"))
             parametersOnly.removeChild(i, nullptr);
     state.replaceState(parametersOnly);
+    for (auto id : {"loopSustainMode", "loopReleaseMode", "loopLink"})
+        if (!tree.getChildWithProperty("id", id).isValid())
+            if (auto *parameter = state.getParameter(id))
+                parameter->setValueNotifyingHost(parameter->getDefaultValue());
     selectedTab = juce::jlimit(0, 5, int(tree.getProperty("selectedTab", 0)));
     waveformEnvelope = bool(tree.getProperty("waveformEnvelope", true));
     clearMappings();

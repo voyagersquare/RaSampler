@@ -50,6 +50,48 @@ RaLook::RaLook()
 }
 void RaLook::drawButtonText(juce::Graphics &g, juce::TextButton &b, bool over, bool down)
 {
+    if (b.getProperties().contains("loopModeIcon"))
+    {
+        int mode = int(b.getProperties()["loopModeIcon"]);
+        auto r = b.getLocalBounds();
+        float cx = r.getCentreX(), cy = r.getCentreY();
+        auto color = b.getToggleState() ? black : text;
+        g.setColour(color);
+        if (mode == 0)
+        {
+            write(g, "OFF", r, 12, color, juce::Justification::centred);
+            return;
+        }
+        auto arrow = [&](float x1, float x2, float y)
+        {
+            g.drawLine(x1, y, x2, y, 2);
+            float sign = x2 > x1 ? 1.f : -1.f;
+            juce::Path t;
+            t.addTriangle(x2, y, x2 - 5 * sign, y - 4, x2 - 5 * sign, y + 4);
+            g.fillPath(t);
+        };
+        if (mode == 1)
+        {
+            arrow(cx - 12, cx + 8, cy);
+            g.drawLine(cx + 13, cy - 8, cx + 13, cy + 8, 2);
+        }
+        if (mode == 2)
+        {
+            arrow(cx - 13, cx + 13, cy - 5);
+            juce::Path p;
+            p.startNewSubPath(cx + 13, cy);
+            p.lineTo(cx + 13, cy + 7);
+            p.lineTo(cx - 13, cy + 7);
+            p.lineTo(cx - 13, cy);
+            g.strokePath(p, juce::PathStrokeType(1.5f));
+        }
+        if (mode == 3)
+        {
+            arrow(cx - 13, cx + 13, cy - 5);
+            arrow(cx + 13, cx - 13, cy + 5);
+        }
+        return;
+    }
     if (b.getHeight() < 45)
     {
         juce::LookAndFeel_V4::drawButtonText(g, b, over, down);
@@ -320,6 +362,109 @@ void RaControl::resized()
         combo.setBounds(r.reduced(4, juce::jmax(1, (r.getHeight() - 27) / 2)));
     else
         slider.setBounds(r.reduced(compact ? 3 : 4, 0));
+}
+RaLoopModes::RaLoopModes(RaSamplerProcessor &p) : processor(p)
+{
+    const char *names[] = {"One-shot", "Forward", "Ping-pong"};
+    const char *descriptions[] = {"Play once in the direction selected by Reverse, without repeating.",
+                                  "Repeat LOOP IN to LOOP OUT in the direction selected by Reverse.",
+                                  "Alternate between LOOP IN and LOOP OUT (ping-pong)."};
+    for (int i = 0; i < 3; ++i)
+    {
+        auto &b = sustain[i];
+        addAndMakeVisible(b);
+        b.setButtonText(names[i]);
+        b.setName("Sustain / " + juce::String(names[i]));
+        b.getProperties().set("loopModeIcon", i + 1);
+        b.setTooltip("Sustain: " + juce::String(descriptions[i]));
+        b.onClick = [this, i]
+        {
+            processor.setParameter("loopSustainMode", float(i));
+            if (processor.value("loopLink") > .5f)
+                processor.setParameter("loopReleaseMode", float(i + 1));
+            refresh();
+        };
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        auto &b = release[i];
+        addAndMakeVisible(b);
+        auto name = i == 0 ? juce::String("Off") : juce::String(names[i - 1]);
+        b.setButtonText(name);
+        b.setName("Release / " + name);
+        b.getProperties().set("loopModeIcon", i);
+        b.setTooltip(
+            i == 0
+                ? "Release OFF: stop the voice immediately on Note Off (after the sustain pedal is lifted)."
+                : "After Note Off: " + juce::String(descriptions[i - 1]) +
+                      " The amplitude ADSR Release still controls fade-out time.");
+        b.onClick = [this, i]
+        {
+            if (i == 0)
+                processor.setParameter("loopLink", 0);
+            else if (processor.value("loopLink") > .5f)
+                processor.setParameter("loopSustainMode", float(i - 1));
+            processor.setParameter("loopReleaseMode", float(i));
+            refresh();
+        };
+    }
+    addAndMakeVisible(link);
+    link.setName("Link Loop Modes");
+    link.setTooltip("Link Release Mode to Sustain Mode. Both use the existing LOOP IN / LOOP OUT markers. "
+                    "Release OFF unlinks the modes.");
+    link.onClick = [this]
+    {
+        bool linked = processor.value("loopLink") > .5f;
+        int effective = ra::effectiveReleaseMode(int(processor.value("loopSustainMode")),
+                                                 int(processor.value("loopReleaseMode")), linked);
+        processor.setParameter("loopReleaseMode",
+                               float(linked ? effective : int(processor.value("loopSustainMode")) + 1));
+        processor.setParameter("loopLink", linked ? 0.f : 1.f);
+        refresh();
+    };
+    refresh();
+}
+void RaLoopModes::resized()
+{
+    for (int i = 0; i < 3; ++i)
+        sustain[i].setBounds(142 + i * 63, 0, 55, 32);
+    for (int i = 0; i < 4; ++i)
+        release[i].setBounds(142 + i * 63, 48, 55, 32);
+    link.setBounds(350, 0, 110, 32);
+}
+void RaLoopModes::paint(juce::Graphics &g)
+{
+    bool enabled = processor.value("loop") > .5f, gate = processor.value("playMode") < .5f;
+    write(g, "Sustain Mode", {0, 0, 134, 32}, 14, enabled ? text : muted);
+    write(g, "Release Mode", {0, 48, 134, 32}, 14, enabled && gate ? text : muted);
+    write(g,
+          !enabled ? "Enable Loop to use these modes."
+          : !gate  ? "Select Gate playback to use Release Mode."
+                   : "Release follows Note Off and the amplitude ADSR.",
+          {0, 91, getWidth(), 20}, 11, muted);
+}
+void RaLoopModes::refresh()
+{
+    bool enabled = processor.value("loop") > .5f, gate = processor.value("playMode") < .5f,
+         linked = processor.value("loopLink") > .5f;
+    int sm = juce::jlimit(0, 2, int(processor.value("loopSustainMode"))),
+        rm = ra::effectiveReleaseMode(sm, int(processor.value("loopReleaseMode")), linked);
+    for (int i = 0; i < 3; ++i)
+    {
+        sustain[i].setToggleState(i == sm, juce::dontSendNotification);
+        sustain[i].setEnabled(enabled);
+        sustain[i].setAlpha(enabled ? 1.f : .35f);
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        release[i].setToggleState(i == rm, juce::dontSendNotification);
+        release[i].setEnabled(enabled && gate);
+        release[i].setAlpha(enabled && gate ? 1.f : .35f);
+    }
+    link.setToggleState(linked, juce::dontSendNotification);
+    link.setEnabled(enabled);
+    link.setAlpha(enabled ? 1.f : .35f);
+    repaint();
 }
 void RaWave::paint(juce::Graphics &g)
 {
@@ -936,6 +1081,7 @@ void RaSamplerEditor::card(int x, int y, int w, int h, const juce::String &title
 }
 void RaSamplerEditor::buildTab()
 {
+    loopModes.reset();
     controls.clear();
     cards.clear();
     showLearn = tab == 5;
@@ -960,8 +1106,11 @@ void RaSamplerEditor::buildTab()
     case 1:
         card(14, 400, 504, 298, "SAMPLE", "Playback boundaries | positions in samples",
              {"start", "end", "root", "sampleGain", "fadeIn", "fadeOut", "snap", "reverse"});
-        card(526, 400, 504, 298, "LOOP", "Shift-drag waveform to adjust loop markers",
+        card(526, 400, 504, 298, "LOOP", "Loop region | sustain and release playback",
              {"loop", "loopStart", "loopEnd", "playMode"});
+        loopModes = std::make_unique<RaLoopModes>(processor);
+        canvas.addAndMakeVisible(*loopModes);
+        loopModes->setBounds(540, 563, 476, 121);
         card(1038, 400, 508, 298, "TIME-STRETCH", "Offline WSOLA | change duration, retain pitch",
              {"stretch"});
         break;
@@ -1053,7 +1202,7 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     write(g, "Octave", {27, 286, 70, 20}, 13);
     write(g, "RaSampler", {24, 710, 122, 25}, 16, orange);
     write(g, "Size", {932, 710, 43, 25}, 12, muted);
-    write(g, "0.4.0", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
+    write(g, "0.5.0", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
     auto s = processor.sample();
     write(g, juce::String(s->rate / 1000., 1) + " kHz | " + juce::String(s->length() / s->rate, 2) + " s",
           {963, 94, 104, 28}, 11, muted, juce::Justification::centredRight);
@@ -1112,6 +1261,8 @@ void RaSamplerEditor::rootNoteChanged(bool forceFocus)
 }
 void RaSamplerEditor::timerCallback()
 {
+    if (loopModes)
+        loopModes->refresh();
     rootNoteChanged();
     if (tab != processor.selectedTab.load())
         selectTab(processor.selectedTab.load());

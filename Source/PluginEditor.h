@@ -30,6 +30,18 @@ class RaControl : public juce::Component
     std::unique_ptr<ra::APVTS::ComboBoxAttachment> ca;
     std::unique_ptr<ra::APVTS::ButtonAttachment> ba;
 };
+class RaLoopModes : public juce::Component
+{
+  public:
+    explicit RaLoopModes(RaSamplerProcessor &);
+    void paint(juce::Graphics &) override;
+    void resized() override;
+    void refresh();
+
+  private:
+    RaSamplerProcessor &processor;
+    juce::TextButton sustain[3], release[4], link{"Link"};
+};
 class RaWave : public juce::Component, public juce::SettableTooltipClient
 {
   public:
@@ -137,6 +149,7 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     juce::ToggleButton fxButtons[5];
     juce::ComboBox learnChoice, sizeChoice;
     std::vector<std::unique_ptr<RaControl>> persistent, controls;
+    std::unique_ptr<RaLoopModes> loopModes;
     struct Card
     {
         juce::Rectangle<int> bounds;

@@ -34,6 +34,8 @@ jobs:
           build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --loop-demo build/screenshots/Loop
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --root-demo build/screenshots/Root
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --loop-modes-demo build/screenshots/LoopModes
       - name: Assemble download
         shell: pwsh
         run: |

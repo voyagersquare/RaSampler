@@ -18,6 +18,10 @@ int parseRootNoteName(const juce::String &text)
             juce::jlimit(double(rootMinNote), double(rootMaxNote), name.getDoubleValue()));
     return rootReferenceNote;
 }
+int effectiveReleaseMode(int sustainMode, int releaseMode, bool linked)
+{
+    return linked ? juce::jlimit(0, 2, sustainMode) + 1 : juce::jlimit(0, 3, releaseMode);
+}
 const std::vector<ParamSpec> &specs()
 {
     static const auto list = []
@@ -139,6 +143,9 @@ const std::vector<ParamSpec> &specs()
             auto id = "fxOrder" + juce::String(n);
             c(id.toRawUTF8(), "Chain slot", {"Delay", "Reverb", "Chorus", "Phaser", "Saturation"}, n);
         }
+        c("loopSustainMode", "Sustain Mode", {"One-shot", "Forward", "Ping-pong"}, 1);
+        c("loopReleaseMode", "Release Mode", {"Off", "One-shot", "Forward", "Ping-pong"}, 2);
+        b("loopLink", "Link Loop Modes", true);
         return p;
     }();
     return list;

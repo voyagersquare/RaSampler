@@ -210,6 +210,205 @@ static void checkRootNotes()
     restored.setStateInformation(preset.getData(), int(preset.getSize()));
     check(restored.value("root") == 49, "selected chromatic root survives a preset round trip");
 }
+static std::shared_ptr<const ra::SampleData> loopFixture()
+{
+    auto sample = std::make_shared<ra::SampleData>();
+    sample->name = "loop transport fixture";
+    sample->rate = 48000;
+    sample->audio.setSize(2, 128);
+    for (int i = 0; i < 128; ++i)
+        for (int ch = 0; ch < 2; ++ch)
+            sample->audio.setSample(ch, i, float(i) / 128.f);
+    return sample;
+}
+static void configureLoopTest(RaSamplerProcessor &p, int sustain, int release, bool linked = false,
+                              bool reverse = false, bool master = true, int playback = 0,
+                              float envelopeRelease = 1000)
+{
+    p.setSample(loopFixture());
+    p.prepareToPlay(48000, 256);
+    p.setParameter("loop", master ? 1 : 0);
+    p.setParameter("loopStart", .25f);
+    p.setParameter("loopEnd", .5f);
+    p.setParameter("loopSustainMode", float(sustain));
+    p.setParameter("loopReleaseMode", float(release));
+    p.setParameter("loopLink", linked ? 1 : 0);
+    p.setParameter("reverse", reverse ? 1 : 0);
+    p.setParameter("playMode", float(playback));
+    p.setParameter("filterOn", 0);
+    p.setParameter("fadeIn", 0);
+    p.setParameter("fadeOut", 0);
+    p.setParameter("ampAttack", .1f);
+    p.setParameter("ampRelease", envelopeRelease);
+    juce::AudioBuffer<float> empty(2, 256);
+    juce::MidiBuffer midi;
+    p.processBlock(empty, midi);
+}
+static juce::AudioBuffer<float> loopAudio(RaSamplerProcessor &p, int noteOff = -1, bool pedal = false)
+{
+    juce::AudioBuffer<float> audio(2, 256);
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.f), 0);
+    if (pedal)
+        midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 60);
+    if (noteOff >= 0)
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), noteOff);
+    if (pedal)
+        midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 160);
+    p.processBlock(audio, midi);
+    return audio;
+}
+static int rampIndex(const juce::AudioBuffer<float> &audio, int at)
+{
+    return juce::roundToInt(audio.getSample(0, at) * 128);
+}
+static void checkLoopModes()
+{
+    RaSamplerProcessor p;
+    configureLoopTest(p, 0, 1);
+    auto once = loopAudio(p);
+    check(rampIndex(once, 127) == 127 && once.getSample(0, 128) == 0 && p.activeVoices.load() == 0,
+          "Sustain Once reaches the sample end without repeating");
+    configureLoopTest(p, 1, 2);
+    auto forward = loopAudio(p);
+    check(rampIndex(forward, 62) == 62 && rampIndex(forward, 63) == 31 && rampIndex(forward, 64) == 32 &&
+              rampIndex(forward, 95) == 31,
+          "Sustain Forward wraps within LOOP IN and LOOP OUT");
+    configureLoopTest(p, 2, 3);
+    auto ping = loopAudio(p);
+    check(rampIndex(ping, 63) == 63 && rampIndex(ping, 64) == 62 && rampIndex(ping, 95) == 31 &&
+              rampIndex(ping, 96) == 32,
+          "Sustain Ping-pong reflects at both loop boundaries without duplicate endpoints");
+    configureLoopTest(p, 2, 3, false, true);
+    auto reverse = loopAudio(p);
+    check(rampIndex(reverse, 64) == 63 && rampIndex(reverse, 96) == 31 && rampIndex(reverse, 97) == 32,
+          "Reverse starts ping-pong playback in the opposite direction");
+    configureLoopTest(p, 1, 0);
+    auto off = loopAudio(p, 80);
+    bool silent = true;
+    for (int i = 80; i < 256; ++i)
+        if (off.getSample(0, i) != 0)
+            silent = false;
+    check(off.getSample(0, 79) > 0 && silent && p.activeVoices.load() == 0,
+          "Release OFF stops the voice at the exact MIDI Note Off frame");
+    configureLoopTest(p, 1, 1);
+    auto tail = loopAudio(p, 80);
+    check(rampIndex(tail, 80) == 48 && rampIndex(tail, 159) == 127 && tail.getSample(0, 160) == 0,
+          "Release Once leaves the loop and plays toward the sample end");
+    configureLoopTest(p, 1, 2);
+    auto releaseForward = loopAudio(p, 80);
+    check(rampIndex(releaseForward, 95) == 31 && rampIndex(releaseForward, 127) == 31 &&
+              p.activeVoices.load() == 1,
+          "Release Forward continues looping during amplitude release");
+    configureLoopTest(p, 1, 3);
+    auto releasePing = loopAudio(p, 80);
+    check(rampIndex(releasePing, 95) == 63 && rampIndex(releasePing, 96) == 62 &&
+              rampIndex(releasePing, 127) == 31 && rampIndex(releasePing, 128) == 32,
+          "Release Ping-pong changes direction after note release");
+    configureLoopTest(p, 2, 0, true);
+    auto linked = loopAudio(p, 80);
+    check(rampIndex(linked, 81) == 45 && rampIndex(linked, 95) == 31 && rampIndex(linked, 96) == 32 &&
+              p.activeVoices.load() == 1,
+          "Link carries the sustain ping-pong direction smoothly into release");
+    configureLoopTest(p, 1, 0);
+    auto pedal = loopAudio(p, 80, true);
+    check(pedal.getSample(0, 159) > 0 && pedal.getSample(0, 160) == 0,
+          "Release Mode waits until the sustain pedal is lifted");
+    configureLoopTest(p, 1, 0, false, false, true, 1);
+    auto trigger = loopAudio(p, 80);
+    check(trigger.getSample(0, 200) > 0 && p.activeVoices.load() == 1,
+          "One-shot playback continues to ignore ordinary Note Off");
+    configureLoopTest(p, 1, 0, false, false, false);
+    auto noLoop = loopAudio(p, 80);
+    check(noLoop.getSample(0, 81) > 0 && noLoop.getSample(0, 128) == 0,
+          "release loop modes do not alter playback when the main Loop switch is off");
+    configureLoopTest(p, 1, 2, false, false, true, 0, 1);
+    auto shortRelease = loopAudio(p, 80);
+    check(shortRelease.getSample(0, 130) == 0 && p.activeVoices.load() == 0,
+          "release looping ends when the amplitude ADSR Release finishes");
+    configureLoopTest(p, 2, 3);
+    p.setParameter("loopEnd", .26f);
+    p.setParameter("transpose", 48);
+    p.setParameter("root", 72);
+    auto fast = loopAudio(p);
+    bool bounded = true;
+    for (int i = 32; i < 256; ++i)
+        if (!std::isfinite(fast.getSample(0, i)) || rampIndex(fast, i) < 31 || rampIndex(fast, i) > 33)
+            bounded = false;
+    check(bounded,
+          "ping-pong handles increments larger than a very short loop without reading outside its bounds");
+    RaSamplerProcessor ui;
+    RaSamplerEditor editor(ui);
+    editor.selectTab(1);
+    RaLoopModes *modes = nullptr;
+    auto *canvas = editor.getChildComponent(0);
+    for (int i = 0; i < canvas->getNumChildComponents(); ++i)
+        if (auto *item = dynamic_cast<RaLoopModes *>(canvas->getChildComponent(i)))
+            modes = item;
+    check(modes != nullptr, "Sample page contains Sustain Mode and Release Mode inside LOOP");
+    auto button = [&](const juce::String &name) -> juce::TextButton *
+    {
+        for (int i = 0; i < modes->getNumChildComponents(); ++i)
+            if (auto *b = dynamic_cast<juce::TextButton *>(modes->getChildComponent(i)))
+                if (b->getName() == name)
+                    return b;
+        throw std::runtime_error("Missing loop mode button");
+    };
+    check(!button("Sustain / Forward")->isEnabled(), "loop mode buttons are inactive until Loop is enabled");
+    ui.setParameter("loop", 1);
+    modes->refresh();
+    button("Sustain / Ping-pong")->onClick();
+    check(ui.value("loopSustainMode") == 2 && ui.value("loopReleaseMode") == 3 &&
+              button("Release / Ping-pong")->getToggleState(),
+          "linked mode buttons keep sustain and release selections together");
+    button("Link Loop Modes")->onClick();
+    button("Sustain / Forward")->onClick();
+    check(ui.value("loopLink") == 0 && ui.value("loopSustainMode") == 1 && ui.value("loopReleaseMode") == 3,
+          "unlinking allows sustain and release to use different loop directions");
+    button("Release / Off")->onClick();
+    check(ui.value("loopReleaseMode") == 0 && ui.value("loopSustainMode") == 1,
+          "Release OFF preserves the independent Sustain selection");
+    button("Link Loop Modes")->onClick();
+    button("Release / One-shot")->onClick();
+    check(ui.value("loopLink") == 1 && ui.value("loopSustainMode") == 0 && ui.value("loopReleaseMode") == 1,
+          "editing linked Release Mode also updates Sustain Mode");
+    button("Release / Off")->onClick();
+    check(ui.value("loopLink") == 0 && ui.value("loopReleaseMode") == 0,
+          "choosing Release OFF automatically unlinks the modes");
+    ui.setParameter("playMode", 1);
+    modes->refresh();
+    check(!button("Release / Forward")->isEnabled() && button("Sustain / Forward")->isEnabled(),
+          "Release controls clearly disable for One-shot playback while Sustain remains available");
+    ui.setParameter("loopSustainMode", 2);
+    ui.setParameter("loopReleaseMode", 1);
+    ui.setParameter("loopLink", 0);
+    juce::MemoryBlock state;
+    ui.getStateInformation(state);
+    RaSamplerProcessor restored;
+    restored.setStateInformation(state.getData(), int(state.getSize()));
+    check(restored.value("loopSustainMode") == 2 && restored.value("loopReleaseMode") == 1 &&
+              restored.value("loopLink") == 0,
+          "independent loop modes and Link state survive preset restoration");
+    auto legacy = juce::ValueTree::readFromData(state.getData(), state.getSize());
+    for (int i = legacy.getNumChildren() - 1; i >= 0; --i)
+    {
+        auto id = legacy.getChild(i).getProperty("id").toString();
+        if (id == "loopSustainMode" || id == "loopReleaseMode" || id == "loopLink")
+            legacy.removeChild(i, nullptr);
+    }
+    juce::MemoryBlock old;
+    {
+        juce::MemoryOutputStream stream(old, false);
+        legacy.writeToStream(stream);
+    }
+    restored.setStateInformation(old.getData(), int(old.getSize()));
+    check(restored.value("loopSustainMode") == 1 && restored.value("loopReleaseMode") == 2 &&
+              restored.value("loopLink") == 1,
+          "older presets retain their original forward-loop behavior");
+    ui.globalReset();
+    check(ui.value("loopSustainMode") == 1 && ui.value("loopReleaseMode") == 2 && ui.value("loopLink") == 1,
+          "Global Reset restores the default linked forward loop modes");
+}
 static void test()
 {
     RaSamplerProcessor p;
@@ -631,6 +830,7 @@ static void test()
     auto small = editor.createComponentSnapshot(editor.getLocalBounds());
     check(small.getWidth() == 936 && small.getHeight() == 444, "native editor renders at minimum size");
     checkRootNotes();
+    checkLoopModes();
     std::cout << "All RaSampler checks passed." << std::endl;
 }
 class CheckApplication : public juce::JUCEApplication, private juce::Timer
@@ -642,7 +842,7 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
     }
     const juce::String getApplicationVersion() override
     {
-        return "0.4.0";
+        return "0.5.0";
     }
     void initialise(const juce::String &args) override
     {
@@ -661,13 +861,15 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
             quit();
             return;
         }
+        loopModesDemo = args.startsWith("--loop-modes-demo");
         rootDemo = args.startsWith("--root-demo");
         bool loopDemo = args.startsWith("--loop-demo");
-        demo = args.startsWith("--envelope-demo") || loopDemo || rootDemo;
-        directory = juce::File(args.fromFirstOccurrenceOf(rootDemo   ? "--root-demo"
-                                                          : loopDemo ? "--loop-demo"
-                                                          : demo     ? "--envelope-demo"
-                                                                     : "--screenshots",
+        demo = args.startsWith("--envelope-demo") || loopDemo || rootDemo || loopModesDemo;
+        directory = juce::File(args.fromFirstOccurrenceOf(loopModesDemo ? "--loop-modes-demo"
+                                                          : rootDemo    ? "--root-demo"
+                                                          : loopDemo    ? "--loop-demo"
+                                                          : demo        ? "--envelope-demo"
+                                                                        : "--screenshots",
                                                           false, false)
                                    .trim()
                                    .unquoted());
@@ -681,11 +883,17 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
             processor->setParameter("ampSustain", .8f);
             processor->setParameter("ampRelease", 80);
         }
-        if (loopDemo)
+        if (loopDemo || loopModesDemo)
         {
             processor->setParameter("loop", 1);
             processor->setParameter("loopStart", .2f);
             processor->setParameter("loopEnd", .8f);
+        }
+        if (loopModesDemo)
+        {
+            processor->setParameter("loopSustainMode", 2);
+            processor->setParameter("loopReleaseMode", 3);
+            processor->setParameter("loopLink", 1);
         }
         if (rootDemo)
             processor->setParameter("root", 61);
@@ -710,10 +918,10 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
     std::unique_ptr<RaSamplerEditor> editor;
     juce::File directory;
     int page = 0;
-    bool demo = false, rootDemo = false;
+    bool demo = false, rootDemo = false, loopModesDemo = false;
     void timerCallback() override
     {
-        int shownPage = rootDemo ? 1 : page;
+        int shownPage = (rootDemo || loopModesDemo) ? 1 : page;
         editor->selectTab(shownPage);
         auto image = editor->createComponentSnapshot(editor->getLocalBounds());
         auto file =
