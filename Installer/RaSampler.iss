@@ -82,5 +82,13 @@ Name: "{autodesktop}\RaSampler"; Filename: "{app}\RaSampler.exe"; Components: st
 [Run]
 Filename: "{app}\RaSampler.exe"; Description: "Launch RaSampler"; Components: standalone; Flags: nowait postinstall skipifsilent unchecked
 
+[UninstallDelete]
+; A manual VST3 copy may have created these directories before Setup. Remove
+; them only when empty; never recursively delete a user's extra files.
+Type: dirifempty; Name: "{commoncf64}\VST3\RaSampler.vst3\Contents\x86_64-win"
+Type: dirifempty; Name: "{commoncf64}\VST3\RaSampler.vst3\Contents\Resources"
+Type: dirifempty; Name: "{commoncf64}\VST3\RaSampler.vst3\Contents"
+Type: dirifempty; Name: "{commoncf64}\VST3\RaSampler.vst3"
+
 ; Only files installed by this package are removed. User presets, samples and
 ; DAW projects are deliberately outside the installer/uninstaller file lists.

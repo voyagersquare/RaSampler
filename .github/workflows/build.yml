@@ -20,10 +20,36 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count -gt 0) { throw ($errors | Out-String) }
           }
+      - name: Native runner image
+        id: native-image
+        shell: pwsh
+        run: |
+          if (-not $env:ImageVersion) { throw 'Runner image version is missing.' }
+          "version=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+      - name: Restore native build outputs
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: rasampler-x64-${{ steps.native-image.outputs.version }}-${{ hashFiles('CMakeLists.txt', 'Source/**', 'Tests/**') }}
+          path: |
+            build/RaSampler_artefacts/Release
+            build/RaSamplerCheck_artefacts/Release
+            build/_deps/juce-src
       - name: Configure
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: cmake -S . -B build -A x64
       - name: Compile Windows VST3 and standalone
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: cmake --build build --config Release --parallel 2
+      - name: Cache native build outputs
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+          path: |
+            build/RaSampler_artefacts/Release
+            build/RaSamplerCheck_artefacts/Release
+            build/_deps/juce-src
       - name: DSP and state regression checks
         run: build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --self-test
       - name: Validate Windows VST3 with pluginval

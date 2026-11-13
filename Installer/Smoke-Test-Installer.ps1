@@ -73,12 +73,18 @@ function Assert-Installed([bool]$Standalone, [bool]$DesktopShortcut = $false) {
     if ((Test-Path -LiteralPath $desktop) -ne $DesktopShortcut) { throw 'Desktop shortcut selection was not respected.' }
     Assert-PresetPreserved
 }
-function Uninstall-And-Check([string]$Phase) {
+function Uninstall-And-Check([string]$Phase, [string]$PreservedBundleFile = '') {
     Invoke-Setup (Join-Path $app 'Uninstall\unins000.exe') $Phase
     for ($attempt = 0; $attempt -lt 100 -and (Test-Path -LiteralPath $app); ++$attempt) { Start-Sleep -Milliseconds 100 }
-    foreach ($path in @($bundle,$app,$registry,$menu,$desktop)) {
+    foreach ($path in @($app,$registry,$menu,$desktop)) {
         if (Test-Path -LiteralPath $path) { throw "Uninstall left behind $path" }
     }
+    if ($PreservedBundleFile) {
+        $remaining = @(Get-ChildItem -LiteralPath $bundle -Recurse -File)
+        if ($remaining.Count -ne 1 -or $remaining[0].FullName -ne $PreservedBundleFile) {
+            throw 'Uninstall removed a user file or left installed VST3 files behind.'
+        }
+    } elseif (Test-Path -LiteralPath $bundle) { throw "Uninstall left behind $bundle" }
     Assert-PresetPreserved
 }
 try {
@@ -116,13 +122,23 @@ try {
     Assert-Installed $false
     Uninstall-And-Check 'portable-upgrade-uninstall'
 
+    # Empty-directory cleanup must not recursively delete files added by a user.
+    Invoke-Setup $Installer 'user-file-preservation' @('/TYPE=compact','/TASKS=')
+    $userFile = Join-Path $bundle ('user-file-' + [guid]::NewGuid().ToString() + '.txt')
+    [IO.File]::WriteAllText($userFile, 'User-owned file: empty-directory cleanup must preserve these bytes.')
+    $userHash = (Get-FileHash -LiteralPath $userFile).Hash
+    Uninstall-And-Check 'user-file-preservation-uninstall' $userFile
+    if ((Get-FileHash -LiteralPath $userFile).Hash -ne $userHash) { throw 'User file contents changed.' }
+    Remove-Item -LiteralPath $userFile
+    Remove-Item -LiteralPath $bundle
+
     [ordered]@{
         version = $version; platform = 'Windows x64'; publisher = 'Independent Audio'
         checks = [ordered]@{
             installerChecksum = $true; freshInstall = $true; installedBundleChecksums = $true
             installedAppsRegistration = $true; installedVst3Pluginval = $true; standaloneStartup = $true
             startMenuAndDesktopShortcuts = $true; upgradeAndRepair = $true; vst3OnlyInstall = $true
-            portableUpgrade = $true; uninstall = $true; userPresetsPreserved = $true
+            portableUpgrade = $true; uninstall = $true; userPresetsPreserved = $true; extraUserFilesPreserved = $true
         }
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
     Write-Host 'PASS: installer fresh install, installed VST3 validation, standalone startup, upgrade/repair, VST3-only mode, portable upgrade, uninstall and user preset preservation'
