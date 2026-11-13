@@ -1,0 +1,24 @@
+RaSampler - Independent Audio
+Windows 10/11, 64-bit
+
+Close your DAW and any running RaSampler windows before continuing.
+
+The VST3 instrument is installed for all users in the standard location:
+C:\Program Files\Common Files\VST3\RaSampler.vst3
+
+Choose "VST3 instrument only" if you only use RaSampler inside a DAW.
+The optional standalone application is installed in:
+C:\Program Files\Independent Audio\RaSampler
+
+After installation, rescan VST3 instruments in your DAW. RaSampler appears
+under the manufacturer Independent Audio. Its plugin identity is preserved
+so existing RaSampler projects continue to load it.
+
+If an older version was manually copied to another VST3 scan folder, remove
+that old RaSampler.vst3 copy to avoid duplicate entries. Keep only the new
+installed copy. Do not remove your samples, presets or DAW projects.
+
+To remove this installation, use Windows Settings > Apps > Installed apps >
+RaSampler > Uninstall. Your own samples, presets and projects are preserved.
+
+Documentation and third-party licence notices are included with the installation.

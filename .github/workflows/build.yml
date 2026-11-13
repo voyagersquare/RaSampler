@@ -8,8 +8,18 @@ permissions:
 jobs:
   windows:
     runs-on: windows-2022
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Check installer PowerShell syntax
+        shell: pwsh
+        run: |
+          Get-ChildItem Installer/*.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { throw ($errors | Out-String) }
+          }
       - name: Configure
         run: cmake -S . -B build -A x64
       - name: Compile Windows VST3 and standalone
@@ -44,7 +54,44 @@ jobs:
           Copy-Item build/RaSampler_artefacts/Release/Standalone/RaSampler.exe dist
           Copy-Item build/screenshots dist -Recurse
           Copy-Item README.md,THIRD_PARTY.md,Install-Windows.ps1 dist
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.4.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_4/innosetup-6.7.4.exe' -OutFile $setup
+          $expected = 'a549929319f9120716677c685535ca4671e4b937b5fdc87e2585f32d8eb30e8c'
+          if ((Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Inno Setup checksum mismatch.' }
+          $process = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Inno Setup installation failed.' }
+      - name: Build standard Windows setup wizard
+        shell: pwsh
+        run: ./Installer/Build-Installer.ps1 -SkipBuild
+      - name: Test installation, upgrade, standalone, VST3-only mode and uninstall
+        shell: pwsh
+        run: |
+          $installer = @(Get-ChildItem build/installer/RaSampler-*-Windows-x64-Setup.exe)
+          if ($installer.Count -ne 1) { throw 'Expected exactly one setup executable.' }
+          $validator = (Get-ChildItem pluginval -Recurse -Filter pluginval.exe | Select-Object -First 1).FullName
+          ./Installer/Smoke-Test-Installer.ps1 -Installer $installer[0].FullName -PluginvalPath $validator -ReportPath build/installer/installer-test-results.json
+      - name: Upload tested Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: RaSampler-Windows-x64-Installer
+          path: |
+            build/installer/RaSampler-*-Windows-x64-Setup.exe
+            build/installer/RaSampler-*-Windows-x64-Setup.exe.sha256
+            build/installer/release-info.json
+            build/installer/installer-test-results.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: RaSampler-Windows-x64
           path: dist/
+      - name: Upload installer failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RaSampler-installer-diagnostics
+          path: ${{ runner.temp }}/RaSampler-install-*.log
+          if-no-files-found: ignore
+          retention-days: 7

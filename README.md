@@ -1,6 +1,6 @@
 # RaSampler
 
-Windows x64 VST3 sampler instrument, by Voyagersquare. Native C++17 / JUCE 8.0.6.
+Windows x64 VST3 sampler instrument, by **Independent Audio**. Native C++17 / JUCE 8.0.6.
 
 Jedan učitani sample, šest kartica, bez zona. Tamno metalno sučelje s narančastim kontrolama prema dogovorenim referentnim slikama. Svi gumbi i parametri donjih panela povezani su s instrumentom.
 
@@ -12,7 +12,16 @@ Prikaz nove ADSR ovojnice s primjerom postavki Attack 60 ms, Decay 90 ms, Sustai
 
 ## Preuzimanje i instalacija
 
-GitHub → **Actions → Build and verify RaSampler → zadnji uspješni run → RaSampler-Windows-x64**. Raspakirajte cijeli ZIP. Pokrenite `Install-Windows.ps1` u PowerShellu ili kopirajte cijelu mapu `RaSampler.vst3` u `C:\Program Files\Common Files\VST3` (zahtijeva administratorska prava). Ponovno skenirajte VST3 instrumente u DAW-u. `RaSampler.exe` je samostalna aplikacija; postavke zvučne kartice/MIDI-ja nalaze se u njezinu Options izborniku. U paketu su i slike svih šest kartica.
+Preuzmite **RaSampler-Windows-x64-Installer** iz zadnje uspješne GitHub Actions izgradnje. Raspakirajte ZIP i pokrenite **RaSampler-0.6.0-Windows-x64-Setup.exe**. Standardni Windows čarobnjak nudi VST3 instrument i opcionalnu samostalnu aplikaciju. Instalacija traži administratorska prava i podržava Windows 10/11 x64.
+
+- **Proizvođač:** Independent Audio, u DAW-u, Windows svojstvima datoteka i popisu instaliranih aplikacija.
+- **VST3:** `C:\Program Files\Common Files\VST3\RaSampler.vst3` — standardna mapa za skeniranje VST3 instrumenata.
+- **Samostalna aplikacija:** `C:\Program Files\Independent Audio\RaSampler\RaSampler.exe`; izborni Start menu / desktop prečaci. Audio i MIDI postavke nalaze se u izborniku Options.
+- **Uklanjanje:** Windows Settings → Apps → Installed apps → RaSampler → Uninstall. Korisnički preseti, sampleovi i DAW projekti ostaju sačuvani.
+
+Prije instalacije zatvorite DAW i RaSampler. Nakon instalacije ponovno skenirajte VST3 instrumente. Sačuvani su izvorni VST3 identifikatori radi kompatibilnosti s postojećim projektima. Ako je prethodna verzija ručno kopirana u drugu mapu za skeniranje (uključujući `%LOCALAPPDATA%\Programs\Common\VST3` iz starije PowerShell instalacije), uklonite tu staru kopiju `RaSampler.vst3` kako biste izbjegli duplikate. Installer nadograđuje postojeću kopiju u standardnoj sistemskoj mapi.
+
+Uz setup dolaze SHA-256 kontrolni zbroj i izvještaj provjere instalacije. Installer trenutačno nema Authenticode digitalni potpis. Zaseban **RaSampler-Windows-x64** ZIP i dalje sadrži VST3, samostalni EXE i slike svih kartica za ručnu instalaciju.
 
 ## Rad
 
@@ -44,12 +53,16 @@ build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --self-test
 build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --screenshots build/screenshots
 ```
 
+Za izradu standardnog installera instalirajte i **Inno Setup 6.7.4**, zatim pokrenite `Build-Installer.cmd`. Ako je Release build već izrađen: `powershell -NoProfile -ExecutionPolicy Bypass -File Installer/Build-Installer.ps1 -SkipBuild`. Setup i SHA-256 zapis nastaju u `build/installer/`. MSVC runtime ugrađen je statički, bez dodatne instalacije Visual C++ redistributable paketa.
+
+GitHub Actions dodatno provjerava stvarnu instalaciju, identičnost instaliranih datoteka, proizvođača, Windows registraciju, VST3 validaciju iz instalacijske mape, pokretanje samostalne aplikacije, prečace, nadogradnju/popravak, VST3-only instalaciju i deinstalaciju uz očuvanje preseta. Testovi instalacije izvode se samo na privremenom Windows runneru.
+
 CMake preuzima JUCE s fiksnog commita. Gotovi plugin: `build/RaSampler_artefacts/Release/VST3/RaSampler.vst3`. Izgradnja na Linuxu također je podržana za provjeru; potrebni su standardni JUCE X11, ALSA i font development paketi.
 
 ## Provjera i granice verzije
 
-`RaSamplerCheck --self-test` provjerava audio izlaz, točan MIDI offset, Panic, reverse petlju, oscilator, filtere/efekte, redoslijed efekata, state restore, WSOLA trajanje, ugrađivanje audio datoteke i Note Off. `--screenshots <mapa>` renderira stvarni native editor za svih šest kartica. Verzija 0.5.0 prolazi svih 154 provjere, uključujući Sustain/Release transport, Reverse, Link, povlačenje Release Loop markera i kompatibilnost preseta, te Windows VST3 pluginval validaciju na razini 5. `--loop-modes-demo <mapa>` prikazuje nove kontrole i markere.
+`RaSamplerCheck --self-test` provjerava audio izlaz, točan MIDI offset, Panic, reverse petlju, oscilator, filtere/efekte, redoslijed efekata, state restore, WSOLA trajanje, ugrađivanje audio datoteke i Note Off. `--screenshots <mapa>` renderira stvarni native editor za svih šest kartica. Verzija 0.6.0 prolazi svih 154 provjere, uključujući Sustain/Release transport, Reverse, Link, povlačenje Release Loop markera i kompatibilnost preseta, te Windows VST3 pluginval validaciju na razini 5. `--loop-modes-demo <mapa>` prikazuje nove kontrole i markere.
 
-Ovo je početna verzija 0.5.0. Parametri Reverba Size i Decay zajedno se preslikavaju na JUCE reverb; Decay nije kalibrirano RT60 mjerenje. Saturation i square/saw oscilatori nemaju oversampling/antialiasing. WSOLA može dati artefakte na velikim omjerima ili složenim uzorcima. Nema crossfadea petlje; za diskontinuitet na spoju trebaju odgovarajuće granice. Potrebna je dodatna provjera u stvarnim Windows DAW-ovima prije produkcijske uporabe.
+Trenutna verzija: 0.6.0. Parametri Reverba Size i Decay zajedno se preslikavaju na JUCE reverb; Decay nije kalibrirano RT60 mjerenje. Saturation i square/saw oscilatori nemaju oversampling/antialiasing. WSOLA može dati artefakte na velikim omjerima ili složenim uzorcima. Nema crossfadea petlje; za diskontinuitet na spoju trebaju odgovarajuće granice. Potrebna je dodatna provjera u stvarnim Windows DAW-ovima prije produkcijske uporabe.
 
 Vidi `THIRD_PARTY.md` za uvjete JUCE licence prije distribucije.

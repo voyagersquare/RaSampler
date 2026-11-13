@@ -1260,9 +1260,10 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     }
     write(g, "Velocity", {1144, 293, 120, 22}, 14);
     write(g, "Octave", {27, 286, 70, 20}, 13);
-    write(g, "RaSampler", {24, 710, 122, 25}, 16, orange);
+    write(g, "RaSampler", {24, 705, 122, 19}, 16, orange);
+    write(g, "Independent Audio", {24, 724, 122, 12}, 10, muted);
     write(g, "Size", {932, 710, 43, 25}, 12, muted);
-    write(g, "0.5.0", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
+    write(g, JucePlugin_VersionString, {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
     auto s = processor.sample();
     write(g, juce::String(s->rate / 1000., 1) + " kHz | " + juce::String(s->length() / s->rate, 2) + " s",
           {963, 94, 104, 28}, 11, muted, juce::Justification::centredRight);

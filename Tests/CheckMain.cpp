@@ -903,7 +903,7 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
     }
     const juce::String getApplicationVersion() override
     {
-        return "0.5.0";
+        return JucePlugin_VersionString;
     }
     void initialise(const juce::String &args) override
     {
