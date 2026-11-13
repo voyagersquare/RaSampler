@@ -3,6 +3,9 @@
 namespace ra
 {
 using APVTS = juce::AudioProcessorValueTreeState;
+inline constexpr int rootMinNote = 36, rootMaxNote = 72, rootReferenceNote = 60;
+juce::String rootNoteName(int midiNote);
+int parseRootNoteName(const juce::String &text);
 APVTS::ParameterLayout makeParameters();
 struct ParamSpec
 {

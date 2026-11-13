@@ -321,7 +321,8 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
     const float c_pitchSustain = p("pitchSustain");
     const float c_resonance = p("resonance");
     const float c_reverse = p("reverse");
-    const float c_root = p("root");
+    const float c_root = float(juce::jlimit(rootMinNote, rootMaxNote, juce::roundToInt(p("root"))));
+    const float rootShift = c_root - rootReferenceNote;
     const float c_sampleGain = p("sampleGain");
     const float c_start = p("start");
     const float c_transpose = p("transpose");
@@ -426,7 +427,8 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
                 v.pitch += (v.note - v.pitch) * (1 - std::exp(-1 / (c_glide * .001 * sr)));
             else
                 v.pitch = v.note;
-            double semitones = v.pitch - c_root + c_transpose + c_detune * .01 +
+            // Root Note is an ascending base-pitch selector; C3 is neutral for the original sample.
+            double semitones = v.pitch - rootReferenceNote + rootShift + c_transpose + c_detune * .01 +
                                bends[size_t(v.channel - 1)] * c_bendRange + penv * c_pitchAmount +
                                mod[0] * 24;
             double increment = s.rate / sr * std::pow(2., semitones / 12);
@@ -439,8 +441,8 @@ void Engine::render(juce::AudioBuffer<float> &buffer, int offset, int count)
                 fade *= float(juce::jlimit(0., 1., elapsed / (s.rate * c_fadeIn * .001)));
             if (c_fadeOut > 0)
                 fade *= float(juce::jlimit(0., 1., remaining / (s.rate * c_fadeOut * .001)));
-            double freq = 440 * std::pow(2., (v.pitch + c_transpose + c_oscTune - 69 + c_detune * .01 +
-                                              bends[size_t(v.channel - 1)] * c_bendRange +
+            double freq = 440 * std::pow(2., (v.pitch + rootShift + c_transpose + c_oscTune - 69 +
+                                              c_detune * .01 + bends[size_t(v.channel - 1)] * c_bendRange +
                                               penv * c_pitchAmount + mod[0] * 24) /
                                                  12);
             v.oscPhase += juce::jmin(.49, freq / sr);

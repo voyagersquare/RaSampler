@@ -20,6 +20,196 @@ static double energy(const juce::AudioBuffer<float> &b)
         }
     return sum;
 }
+// Measure actual rendered audio, including interpolation, instead of checking the pitch formula.
+static double renderedFrequency(RaSamplerProcessor &processor, bool start = true, int midiNote = 60)
+{
+    juce::AudioBuffer<float> audio(2, 512);
+    juce::MidiBuffer midi;
+    if (start)
+    {
+        processor.panic = true;
+        processor.processBlock(audio, midi);
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOn(1, midiNote, 1.f), 0);
+    }
+    float previous = 0;
+    bool valid = false;
+    double first = 0, last = 0;
+    int crossings = 0;
+    for (int block = 0; block < 40; ++block)
+    {
+        processor.processBlock(audio, midi);
+        midi.clear();
+        for (int i = 0; i < 512; ++i)
+        {
+            float x = audio.getSample(0, i);
+            int at = block * 512 + i;
+            if (at >= 1024 && valid && previous <= 0 && x > 0)
+            {
+                double crossing = at - 1 - double(previous) / (x - previous);
+                if (crossings++ == 0)
+                    first = crossing;
+                last = crossing;
+            }
+            previous = x;
+            valid = at >= 1024;
+        }
+    }
+    if (crossings < 3 || last <= first)
+        throw std::runtime_error("Not enough audio cycles to measure tuning");
+    return (crossings - 1) * 48000. / (last - first);
+}
+static void checkRootNotes()
+{
+    RaSamplerProcessor processor;
+    auto source = std::make_shared<ra::SampleData>();
+    source->rate = 44100;
+    source->name = "C3 calibration tone";
+    source->audio.setSize(2, 44100);
+    const double base = juce::MidiMessage::getMidiNoteInHertz(60);
+    for (int i = 0; i < 44100; ++i)
+        for (int ch = 0; ch < 2; ++ch)
+            source->audio.setSample(
+                ch, i, float(.3 * std::sin(juce::MathConstants<double>::twoPi * base * i / 44100.)));
+    processor.setSample(source);
+    processor.prepareToPlay(48000, 512);
+    processor.setParameter("filterOn", 0);
+    processor.setParameter("loop", 1);
+    auto *root = processor.state.getParameter("root");
+    check(root->getNumSteps() == 37, "Root Note exposes exactly 37 chromatic steps from C1 to C4");
+    bool allPitch = true;
+    double previous = 0;
+    for (int note = 36; note <= 72; ++note)
+    {
+        processor.setParameter("root", float(note));
+        double frequency = renderedFrequency(processor);
+        double expected = base * std::pow(2., (note - 60) / 12.);
+        if (std::abs(frequency / expected - 1) > .002 ||
+            (previous > 0 && std::abs(frequency / previous - std::pow(2., 1. / 12.)) > .002))
+            allPitch = false;
+        previous = frequency;
+    }
+    check(allPitch, "all 37 Root Note steps produce ascending semitones in rendered sample audio");
+    processor.setParameter("root", 60);
+    double before = renderedFrequency(processor);
+    processor.setParameter("root", 61);
+    double after = renderedFrequency(processor, false);
+    check(std::abs(after / before - std::pow(2., 1. / 12.)) < .002 && processor.activeVoices.load() == 1,
+          "Root Note retunes an already playing sample without another MIDI note-on");
+    processor.setParameter("root", 48);
+    double midiSemitone = renderedFrequency(processor, true, 61);
+    check(std::abs(midiSemitone / (base * std::pow(2., -11. / 12.)) - 1) < .002,
+          "MIDI key tracking remains chromatic alongside Root Note tuning");
+    processor.setParameter("transpose", 12);
+    double transposed = renderedFrequency(processor);
+    check(std::abs(transposed / base - 1) < .002, "Transpose combines correctly with Root Note");
+    processor.setParameter("transpose", 0);
+    auto silence = std::make_shared<ra::SampleData>(*source);
+    silence->audio.clear();
+    processor.setSample(silence);
+    processor.setParameter("oscOn", 1);
+    processor.setParameter("oscWave", 0);
+    processor.setParameter("oscLevel", -6);
+    bool oscillator = true;
+    for (int note : {36, 60, 72})
+    {
+        processor.setParameter("root", float(note));
+        if (std::abs(renderedFrequency(processor) / (base * std::pow(2., (note - 60) / 12.)) - 1) > .002)
+            oscillator = false;
+    }
+    check(oscillator, "additional oscillator follows the selected Root Note");
+    RaSamplerProcessor ui;
+    RaSamplerEditor editor(ui);
+    editor.selectTab(1);
+    auto *canvas = editor.getChildComponent(0);
+    RaControl *control = nullptr;
+    RaKeyboard *keyboard = nullptr;
+    for (int i = 0; i < canvas->getNumChildComponents(); ++i)
+    {
+        if (auto *c = dynamic_cast<RaControl *>(canvas->getChildComponent(i)))
+            if (c->id == "root")
+                control = c;
+        if (auto *k = dynamic_cast<RaKeyboard *>(canvas->getChildComponent(i)))
+            keyboard = k;
+    }
+    check(control && keyboard, "Root Note knob is connected to the native keyboard");
+    const char *names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    bool labels = true, highlights = true;
+    for (int note = 36; note <= 72; ++note)
+    {
+        control->slider.setValue(note, juce::sendNotificationSync);
+        juce::String label;
+        for (int i = 0; i < control->slider.getNumChildComponents(); ++i)
+            if (auto *value = dynamic_cast<juce::Label *>(control->slider.getChildComponent(i)))
+                label = value->getText();
+        auto expected = juce::String(names[(note - 36) % 12]) + juce::String(1 + (note - 36) / 12);
+        if (label.replace(juce::String::charToString(0x266f), "#") != expected ||
+            juce::roundToInt(ui.value("root")) != note)
+            labels = false;
+        auto bounds = keyboard->getRectangleForKey(note);
+        auto image = keyboard->createComponentSnapshot(keyboard->getLocalBounds());
+        int x = juce::jlimit(0, image.getWidth() - 1, int(bounds.getX() + bounds.getWidth() * .5f));
+        int y = juce::jlimit(0, image.getHeight() - 1,
+                             int(bounds.getBottom() - (juce::MidiMessage::isMidiNoteBlack(note) ? 14 : 4)));
+        auto color = image.getPixelAt(x, y);
+        if (color.getRed() < 180 || color.getGreen() < 100 || color.getBlue() > 150)
+            highlights = false;
+    }
+    check(labels, "Root Note knob displays C, C sharp, D, D sharp, E, F, F sharp, G, G sharp, A, A sharp, B "
+                  "across C1-C4");
+    check(highlights, "each selected white or black keyboard key is filled yellow");
+    ui.setParameter("root", 60);
+    auto event =
+        juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), {10, 10}, juce::ModifierKeys{}, 1,
+                         0, 0, 0, 0, &control->slider, &control->slider, juce::Time::getCurrentTime(),
+                         {10, 10}, juce::Time::getCurrentTime(), 0, false);
+    juce::MouseWheelDetails wheel{};
+    wheel.deltaY = .5f;
+    static_cast<juce::Component &>(control->slider).mouseWheelMove(event, wheel);
+    check(ui.value("root") == 61, "mouse wheel increases Root Note by exactly one semitone");
+    wheel.deltaY = -.5f;
+    static_cast<juce::Component &>(control->slider).mouseWheelMove(event, wheel);
+    check(ui.value("root") == 60, "mouse wheel decreases Root Note by exactly one semitone");
+    check(ra::parseRootNoteName("Db2") == 49 &&
+              ra::parseRootNoteName(juce::String("D") + juce::String::charToString(0x266d) + "2") == 49 &&
+              ra::parseRootNoteName("F#3") == 66,
+          "note-name entry accepts sharp and flat enharmonic names");
+    ui.setParameter("root", 0);
+    check(ui.value("root") == 36, "Root Note clamps below C1");
+    ui.setParameter("root", 127);
+    check(ui.value("root") == 72, "Root Note clamps above C4");
+    ui.setParameter("root", 71);
+    keyboard->setLowestVisibleKey(0);
+    control->slider.setValue(72, juce::sendNotificationSync);
+    auto visible = keyboard->getRectangleForKey(72);
+    check(visible.getX() >= 0 && visible.getRight() <= keyboard->getWidth(),
+          "keyboard scrolls the selected root into view when necessary");
+    juce::MemoryBlock preset;
+    ui.getStateInformation(preset);
+    auto tree = juce::ValueTree::readFromData(preset.getData(), preset.getSize());
+    auto rootState = tree.getChildWithProperty("id", "root");
+    check(rootState.isValid(), "root preset property remains compatible with existing parameter IDs");
+    bool legacy = true;
+    for (int old : {0, 127})
+    {
+        rootState.setProperty("value", old, nullptr);
+        juce::MemoryBlock legacyData;
+        {
+            juce::MemoryOutputStream stream(legacyData, false);
+            tree.writeToStream(stream);
+        }
+        RaSamplerProcessor restored;
+        restored.setStateInformation(legacyData.getData(), int(legacyData.getSize()));
+        if (restored.value("root") != float(old == 0 ? 36 : 72))
+            legacy = false;
+    }
+    check(legacy, "older out-of-range root values are safely clamped when a preset is restored");
+    ui.setParameter("root", 49);
+    ui.getStateInformation(preset);
+    RaSamplerProcessor restored;
+    restored.setStateInformation(preset.getData(), int(preset.getSize()));
+    check(restored.value("root") == 49, "selected chromatic root survives a preset round trip");
+}
 static void test()
 {
     RaSamplerProcessor p;
@@ -440,6 +630,7 @@ static void test()
     editor.setSize(936, 444);
     auto small = editor.createComponentSnapshot(editor.getLocalBounds());
     check(small.getWidth() == 936 && small.getHeight() == 444, "native editor renders at minimum size");
+    checkRootNotes();
     std::cout << "All RaSampler checks passed." << std::endl;
 }
 class CheckApplication : public juce::JUCEApplication, private juce::Timer
@@ -451,7 +642,7 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
     }
     const juce::String getApplicationVersion() override
     {
-        return "0.3.0";
+        return "0.4.0";
     }
     void initialise(const juce::String &args) override
     {
@@ -470,11 +661,13 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
             quit();
             return;
         }
+        rootDemo = args.startsWith("--root-demo");
         bool loopDemo = args.startsWith("--loop-demo");
-        demo = args.startsWith("--envelope-demo") || loopDemo;
-        directory = juce::File(args.fromFirstOccurrenceOf(loopDemo ? "--loop-demo"
-                                                          : demo   ? "--envelope-demo"
-                                                                   : "--screenshots",
+        demo = args.startsWith("--envelope-demo") || loopDemo || rootDemo;
+        directory = juce::File(args.fromFirstOccurrenceOf(rootDemo   ? "--root-demo"
+                                                          : loopDemo ? "--loop-demo"
+                                                          : demo     ? "--envelope-demo"
+                                                                     : "--screenshots",
                                                           false, false)
                                    .trim()
                                    .unquoted());
@@ -494,6 +687,8 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
             processor->setParameter("loopStart", .2f);
             processor->setParameter("loopEnd", .8f);
         }
+        if (rootDemo)
+            processor->setParameter("root", 61);
         editor = std::make_unique<RaSamplerEditor>(*processor);
         editor->addToDesktop(0);
         editor->setVisible(true);
@@ -515,15 +710,17 @@ class CheckApplication : public juce::JUCEApplication, private juce::Timer
     std::unique_ptr<RaSamplerEditor> editor;
     juce::File directory;
     int page = 0;
-    bool demo = false;
+    bool demo = false, rootDemo = false;
     void timerCallback() override
     {
-        editor->selectTab(page);
+        int shownPage = rootDemo ? 1 : page;
+        editor->selectTab(shownPage);
         auto image = editor->createComponentSnapshot(editor->getLocalBounds());
-        auto file = directory.getChildFile(
-            juce::String(page) + "-" +
-            juce::StringArray{"Effects", "Sample", "Pitch-Osc", "Filter-Global", "Modulation", "MIDI"}[page] +
-            ".png");
+        auto file =
+            directory.getChildFile(juce::String(shownPage) + "-" +
+                                   juce::StringArray{"Effects", "Sample", "Pitch-Osc", "Filter-Global",
+                                                     "Modulation", "MIDI"}[shownPage] +
+                                   ".png");
         auto out = file.createOutputStream();
         if (out)
         {

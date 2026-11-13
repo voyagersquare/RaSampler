@@ -16,6 +16,7 @@ class RaControl : public juce::Component
   public:
     RaControl(RaSamplerProcessor &, const juce::String &, bool compact = false);
     void resized() override;
+    void mouseWheelMove(const juce::MouseEvent &, const juce::MouseWheelDetails &) override;
     juce::Slider slider;
     juce::ComboBox combo;
     juce::ToggleButton toggle;
@@ -24,6 +25,7 @@ class RaControl : public juce::Component
     bool compact = false;
 
   private:
+    RaSamplerProcessor &processor;
     std::unique_ptr<ra::APVTS::SliderAttachment> sa;
     std::unique_ptr<ra::APVTS::ComboBoxAttachment> ca;
     std::unique_ptr<ra::APVTS::ButtonAttachment> ba;
@@ -119,6 +121,7 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     void selectTab(int);
     void openSample();
     void loadFile(const juce::File &);
+    void rootNoteChanged();
 
   private:
     RaSamplerProcessor &processor;
@@ -144,7 +147,7 @@ class RaSamplerEditor final : public juce::AudioProcessorEditor,
     juce::TooltipWindow tooltip;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::File lastFile;
-    int tab = 0, octave = 0, dragFrom = -1, selectedFx = 0, displayedLength = -1;
+    int tab = 0, octave = 0, dragFrom = -1, selectedFx = 0, displayedLength = -1, displayedRoot = -1;
     float level = 0;
     bool showLearn = false;
     void timerCallback() override;

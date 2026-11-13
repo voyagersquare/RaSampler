@@ -198,7 +198,7 @@ void RaLook::drawComboBox(juce::Graphics &g, int w, int h, bool, int, int, int, 
     g.strokePath(p, juce::PathStrokeType(1.8f));
 }
 RaControl::RaControl(RaSamplerProcessor &p, const juce::String &parameter, bool small)
-    : id(parameter), compact(small)
+    : id(parameter), compact(small), processor(p)
 {
     const ra::ParamSpec *spec = nullptr;
     for (auto &s : ra::specs())
@@ -245,7 +245,7 @@ RaControl::RaControl(RaSamplerProcessor &p, const juce::String &parameter, bool 
         slider.textFromValueFunction = [parameter, unit = spec->unit](double value)
         {
             if (parameter == "root")
-                return juce::MidiMessage::getMidiNoteName(int(value), true, true, 3);
+                return ra::rootNoteName(juce::roundToInt(value));
             if (parameter == "pan")
                 return std::abs(value) < .01
                            ? juce::String("C")
@@ -258,13 +258,19 @@ RaControl::RaControl(RaSamplerProcessor &p, const juce::String &parameter, bool 
             return juce::String(value, integer ? 0 : 2);
         };
         if (id == "root")
-            slider.valueFromTextFunction = [](const juce::String &value)
+        {
+            slider.valueFromTextFunction = [](const juce::String &text)
+            { return double(ra::parseRootNoteName(text)); };
+            slider.setScrollWheelEnabled(false);
+            slider.setMouseDragSensitivity(360);
+            slider.setTooltip("Root Note C1-C4. Each step raises sample pitch by one semitone; C3 is "
+                              "neutral. Yellow keys show the selected note.");
+            slider.onValueChange = [this]
             {
-                for (int n = 0; n < 128; ++n)
-                    if (value.trim().equalsIgnoreCase(juce::MidiMessage::getMidiNoteName(n, true, true, 3)))
-                        return double(n);
-                return value.getDoubleValue();
+                if (auto *owner = findParentComponentOfClass<RaSamplerEditor>())
+                    owner->rootNoteChanged();
             };
+        }
         if (id == "pan")
             slider.valueFromTextFunction = [](const juce::String &value)
             {
@@ -284,6 +290,21 @@ RaControl::RaControl(RaSamplerProcessor &p, const juce::String &parameter, bool 
         slider.onDragStart = [&p, parameter]
         { p.setStatus("Editing " + parameter + " | double-click restores default"); };
     }
+}
+void RaControl::mouseWheelMove(const juce::MouseEvent &event, const juce::MouseWheelDetails &wheel)
+{
+    if (id == "root" && isEnabled())
+    {
+        if (wheel.isInertial)
+            return;
+        float delta = wheel.deltaY != 0 ? wheel.deltaY : wheel.deltaX;
+        if (delta != 0)
+            processor.setParameter(
+                "root", juce::jlimit(ra::rootMinNote, ra::rootMaxNote,
+                                     juce::roundToInt(processor.value("root")) + (delta > 0 ? 1 : -1)));
+        return;
+    }
+    juce::Component::mouseWheelMove(event, wheel);
 }
 void RaControl::resized()
 {
@@ -688,38 +709,44 @@ void RaVelocity::mouseDrag(const juce::MouseEvent &e)
 void RaKeyboard::drawWhiteNote(int note, juce::Graphics &g, juce::Rectangle<float> r, bool down, bool over,
                                juce::Colour, juce::Colour)
 {
-    bool root = note == int(processor.value("root"));
-    auto top = down ? orange : juce::Colour(0xfff0f0ed),
-         bottom = down ? juce::Colour(0xffdb7800) : juce::Colour(0xffbabdbc);
-    if (over)
+    bool root = note == juce::roundToInt(processor.value("root"));
+    const juce::Colour yellow(0xffffd34a);
+    auto top = root ? yellow : down ? orange : juce::Colour(0xfff0f0ed);
+    auto bottom = root   ? juce::Colour(0xffdca51b)
+                  : down ? juce::Colour(0xffdb7800)
+                         : juce::Colour(0xffbabdbc);
+    if (over || root && down)
         top = top.brighter(.12f);
     g.setGradientFill(juce::ColourGradient(top, r.getX(), r.getY(), bottom, r.getX(), r.getBottom(), false));
     g.fillRect(r.reduced(.5f));
     g.setColour(black);
     g.drawRect(r, 1);
-    if (note % 12 == 0)
+    if (root)
+    {
+        g.setColour(yellow);
+        g.drawRect(r.reduced(1.5f), 1.5f);
+    }
+    if (note % 12 == 0 || root)
         write(g, juce::MidiMessage::getMidiNoteName(note, true, true, 3),
               r.toNearestInt().withTrimmedTop(int(r.getHeight() - 23)), 12, black,
               juce::Justification::centred);
-    if (root)
-    {
-        g.setColour(orange);
-        g.fillEllipse(r.getCentreX() - 3, r.getBottom() - 28, 6, 6);
-    }
 }
 void RaKeyboard::drawBlackNote(int note, juce::Graphics &g, juce::Rectangle<float> r, bool down, bool over,
                                juce::Colour)
 {
+    bool root = note == juce::roundToInt(processor.value("root"));
     g.setColour(juce::Colours::black);
     g.fillRoundedRectangle(r.translated(1, 2), 2);
-    g.setGradientFill(juce::ColourGradient(
-        down ? orange : juce::Colour(over ? 0xff55595a : 0xff373b3c), r.getX(), r.getY(),
-        down ? juce::Colour(0xffb05a00) : juce::Colour(0xff090b0c), r.getX(), r.getBottom(), false));
+    auto top = root ? juce::Colour(0xffffdb59) : down ? orange : juce::Colour(over ? 0xff55595a : 0xff373b3c);
+    auto bottom = root   ? juce::Colour(0xffd5a21c)
+                  : down ? juce::Colour(0xffb05a00)
+                         : juce::Colour(0xff090b0c);
+    g.setGradientFill(juce::ColourGradient(top, r.getX(), r.getY(), bottom, r.getX(), r.getBottom(), false));
     g.fillRect(r.reduced(1));
-    if (note == int(processor.value("root")))
+    if (root)
     {
-        g.setColour(orange);
-        g.fillEllipse(r.getCentreX() - 2, r.getBottom() - 9, 4, 4);
+        g.setColour(juce::Colour(0xffffe58c));
+        g.drawRect(r.reduced(1.5f), 1);
     }
 }
 RaControl &RaSamplerEditor::control(const juce::String &id, juce::Rectangle<int> r, bool compact, bool always)
@@ -874,6 +901,7 @@ RaSamplerEditor::RaSamplerEditor(RaSamplerProcessor &p)
         bounds->setFixedAspectRatio(1560. / 740.);
     setSize(1170, 555);
     selectTab(processor.selectedTab.load());
+    rootNoteChanged();
     startTimerHz(25);
 }
 RaSamplerEditor::~RaSamplerEditor()
@@ -1025,7 +1053,7 @@ void RaSamplerEditor::paint(juce::Graphics &g)
     write(g, "Octave", {27, 286, 70, 20}, 13);
     write(g, "RaSampler", {24, 710, 122, 25}, 16, orange);
     write(g, "Size", {932, 710, 43, 25}, 12, muted);
-    write(g, "0.3.0", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
+    write(g, "0.4.0", {1483, 710, 50, 24}, 12, muted, juce::Justification::centredRight);
     auto s = processor.sample();
     write(g, juce::String(s->rate / 1000., 1) + " kHz | " + juce::String(s->length() / s->rate, 2) + " s",
           {963, 94, 104, 28}, 11, muted, juce::Justification::centredRight);
@@ -1068,8 +1096,23 @@ void RaSamplerEditor::resized()
     canvas.setBounds(0, 0, 1560, 740);
     canvas.setTransform(juce::AffineTransform::scale(float(getWidth()) / 1560.f, float(getHeight()) / 740.f));
 }
+void RaSamplerEditor::rootNoteChanged()
+{
+    int note = juce::jlimit(ra::rootMinNote, ra::rootMaxNote, juce::roundToInt(processor.value("root")));
+    if (displayedRoot == note)
+        return;
+    displayedRoot = note;
+    auto key = keyboard.getRectangleForKey(note);
+    if (key.getX() < 0 || key.getRight() > keyboard.getWidth())
+    {
+        keyboard.setLowestVisibleKey(ra::rootMinNote);
+        octave = 1;
+    }
+    keyboard.repaint();
+}
 void RaSamplerEditor::timerCallback()
 {
+    rootNoteChanged();
     if (tab != processor.selectedTab.load())
         selectTab(processor.selectedTab.load());
     auto s = processor.sample();

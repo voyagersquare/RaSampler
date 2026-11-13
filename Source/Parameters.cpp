@@ -1,6 +1,23 @@
 #include "Parameters.h"
 namespace ra
 {
+juce::String rootNoteName(int note)
+{
+    return juce::MidiMessage::getMidiNoteName(juce::jlimit(rootMinNote, rootMaxNote, note), true, true, 3)
+        .replace("#", juce::String::charToString(0x266f));
+}
+int parseRootNoteName(const juce::String &text)
+{
+    auto name = text.trim().replaceCharacter(0x266f, '#').replaceCharacter(0x266d, 'b').removeCharacters(" ");
+    for (int note = 0; note < 128; ++note)
+        if (name.equalsIgnoreCase(juce::MidiMessage::getMidiNoteName(note, true, true, 3)) ||
+            name.equalsIgnoreCase(juce::MidiMessage::getMidiNoteName(note, false, true, 3)))
+            return juce::jlimit(rootMinNote, rootMaxNote, note);
+    if (name.isNotEmpty() && name.containsOnly("+-0123456789."))
+        return juce::roundToInt(
+            juce::jlimit(double(rootMinNote), double(rootMaxNote), name.getDoubleValue()));
+    return rootReferenceNote;
+}
 const std::vector<ParamSpec> &specs()
 {
     static const auto list = []
@@ -22,7 +39,7 @@ const std::vector<ParamSpec> &specs()
         f("fadeIn", "Fade In", 0, 500, 0, "ms", .4f);
         f("fadeOut", "Fade Out", 0, 500, 3.5f, "ms", .4f);
         f("sampleGain", "Gain", -48, 24, 0, "dB");
-        f("root", "Root Note", 0, 127, 60);
+        f("root", "Root Note", rootMinNote, rootMaxNote, rootReferenceNote);
         c("playMode", "Playback", {"Gate", "One-shot"});
         f("stretch", "Time stretch", .25f, 4, 1, "x", .5f);
         f("transpose", "Transpose", -48, 48, 0, "st");
@@ -132,7 +149,14 @@ APVTS::ParameterLayout makeParameters()
     for (auto &s : specs())
     {
         juce::ParameterID id{s.id, 1};
-        if (s.toggle)
+        if (s.id == "root")
+            layout.add(std::make_unique<juce::AudioParameterInt>(
+                id, s.label, rootMinNote, rootMaxNote, rootReferenceNote,
+                juce::AudioParameterIntAttributes()
+                    .withStringFromValueFunction([](int note, int) { return rootNoteName(note); })
+                    .withValueFromStringFunction([](const juce::String &text)
+                                                 { return parseRootNoteName(text); })));
+        else if (s.toggle)
             layout.add(std::make_unique<juce::AudioParameterBool>(id, s.label, s.initial > .5f));
         else if (!s.choices.isEmpty())
             layout.add(std::make_unique<juce::AudioParameterChoice>(id, s.label, s.choices, int(s.initial)));

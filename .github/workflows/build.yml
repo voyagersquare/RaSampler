@@ -32,6 +32,8 @@ jobs:
           build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --envelope-demo build/screenshots/ADSR
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --loop-demo build/screenshots/Loop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          build/RaSamplerCheck_artefacts/Release/RaSamplerCheck.exe --root-demo build/screenshots/Root
       - name: Assemble download
         shell: pwsh
         run: |
